@@ -1,7 +1,8 @@
-[build]
-target = "thumbv7em-none-eabihf"
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+runner = "probe-rs run --chip STM32F401RETx"
 
-[target.thumbv7em-none-eabihf]
-rustflags = [
-    "-C", "link-arg=-Tlink.x"
-]
+[build]
+target = "thumbv7em-none-eabi"
+
+[env]
+DEFMT_LOG = "trace"
