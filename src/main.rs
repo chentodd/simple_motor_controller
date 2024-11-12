@@ -1,30 +1,35 @@
 #![no_std]
 #![no_main]
 
-use cortex_m_rt::entry;
-use panic_halt as _;
-use rtt_target::{rprintln, rtt_init_print};
+use core::u16;
 
-use stm32f4xx_hal as hal;
-use crate::hal::{pac, prelude::*};
+use defmt::*;
+use embassy_executor::Spawner;
+use embassy_stm32::peripherals;
+use embassy_stm32::timer::qei::*;
+use embassy_time::{Duration, Timer};
+use {defmt_rtt as _, panic_probe as _};
 
-#[entry]
-fn main() -> ! {
-    rtt_init_print!();
-    rprintln!("Hello, start blinking LED1...");
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    info!("Start encoder test..");
 
-    let dp = pac::Peripherals::take().unwrap();
+    let p = embassy_stm32::init(Default::default());
 
-    // pin
-    let gpioa = dp.GPIOA.split();
-    let mut led = gpioa.pa5.into_push_pull_output();
-
-    // delay
-    let rcc = dp.RCC.constrain();
-    let clocks = rcc.cfgr.sysclk(48.MHz()).freeze();
-    let mut delay = dp.TIM5.delay_us(&clocks);
+    // Test left wheel encoder
+    let enc_a: QeiPin<'_, peripherals::TIM2, Ch1> = QeiPin::new_ch1(p.PA0);
+    let enc_b: QeiPin<'_, peripherals::TIM2, Ch2> = QeiPin::new_ch2(p.PA1);
+    let qei_enc = Qei::new(p.TIM2, enc_a, enc_b);
+    
+    let mut enc_count: i32 = 0;
+    let mut prev_qei_count: i32 = 0;
     loop {
-        led.toggle();
-        delay.delay_ms(1000);
+        let curr_qei_count = (qei_enc.count() as i16) as i32;
+        let diff = curr_qei_count.wrapping_sub(prev_qei_count);
+        enc_count += diff;
+        
+        println!("{}, {}, {}, {}", enc_count, diff, curr_qei_count, prev_qei_count);
+        prev_qei_count = curr_qei_count;
+        Timer::after(Duration::from_millis(10)).await;
     }
 }
