@@ -5,7 +5,7 @@ Record embedded rust learnings with nucleo f401re development board
 ## TODOS
 
 - [x] Read encoder values from motor
-- [ ] Test pwm, drive motor with fixed duty cycle
+- [x] Test pwm, drive motor with fixed duty cycle
 - [ ] Test pid, control motor velocity
 - [ ] Test IMU, read IMU settings
 - [ ] Test `micropb`, send controlled data and receive command
