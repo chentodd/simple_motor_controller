@@ -6,10 +6,10 @@ white: pwm
 green: dir
 blue: brk
 
-            left        right
-enc_a       PA0         -         
-enc_b       PA1         -
-pwm         PB0         -
-dir         PA4         -
-brk         -           -
+            left            right
+enc_a       PA0(TIM2)       PB6(TIM4)         
+enc_b       PA1(TIM2)       PB7(TIM4)
+pwm         PB0(TIM3)       PB4(TIM3)
+dir         PA4             PB5
+brk         PC1             PB3
 /****************************************************************************************/
