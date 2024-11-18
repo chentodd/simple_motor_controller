@@ -215,12 +215,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "either"
-version = "1.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60b1af1c220855b6ceac025d3f6ecdd2b7c4894bfe9cd9bda4fbb4bc7c0d4cf0"
-
-[[package]]
 name = "embassy-embedded-hal"
 version = "0.2.0"
 source = "git+https://github.com/embassy-rs/embassy.git#d6a8dce6eef22564160bf25b20528b8b78ec63b8"
@@ -568,9 +562,9 @@ dependencies = [
  "embassy-executor",
  "embassy-futures",
  "embassy-stm32",
+ "embassy-sync",
  "embassy-time",
  "panic-probe",
- "rotary-encoder-hal",
 ]
 
 [[package]]
@@ -651,16 +645,6 @@ name = "rand_core"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
-
-[[package]]
-name = "rotary-encoder-hal"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca5f10fcd6842ed448d9f5913815a343cdcbe10e53da6cac948251d529b75487"
-dependencies = [
- "either",
- "embedded-hal 0.2.7",
-]
 
 [[package]]
 name = "rustc_version"
