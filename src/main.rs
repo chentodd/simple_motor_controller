@@ -1,27 +1,44 @@
 #![no_std]
 #![no_main]
 
+use core::str;
+
 use nucleo_f401re_rust::encoder::Encoder;
 use nucleo_f401re_rust::motor::BldcMotor24H;
 use nucleo_f401re_rust::pid::Pid;
 
+use embedded_io_async::Read;
+
 use embassy_executor::Spawner;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, ThreadModeRawMutex};
 use embassy_sync::signal::Signal;
+use embassy_sync::pubsub::PubSubChannel;
 use embassy_time::Timer;
 
 use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::pac;
-use embassy_stm32::peripherals::{TIM2, TIM3, TIM4};
+use embassy_stm32::peripherals::{self, TIM2, TIM3, TIM4};
+use embassy_stm32::{bind_interrupts, usart};
+
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::{CountingMode, Timer as LLTimer};
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 
+use embassy_stm32::usart::{BufferedUart, BufferedUartRx};
+
+use heapless::Vec;
+use static_cell::StaticCell;
+
+use defmt::info;
 use {defmt_rtt as _, panic_probe as _};
 
 const PERIOD_S: f32 = 0.005;
 static TIMER_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+static CMD_VEL_CHANNEL: PubSubChannel<ThreadModeRawMutex, f32, 4, 1, 1> = PubSubChannel::new();
+
+static TX_BUFFER: StaticCell<[u8; 32]> = StaticCell::new();
+static RX_BUFFER: StaticCell<[u8; 32]> = StaticCell::new();
 
 #[interrupt]
 unsafe fn TIM5() {
@@ -31,23 +48,69 @@ unsafe fn TIM5() {
 }
 
 #[embassy_executor::task]
-async fn run(
+async fn control_wheel_speed(
     mut left_wheel: BldcMotor24H<'static, TIM2, TIM3>,
     mut right_wheel: BldcMotor24H<'static, TIM4, TIM3>,
 ) {
-    // left_wheel.set_target_velocity(1000.0);
-    // right_wheel.set_target_velocity(-1000.0);
-
+    let mut subscriber = CMD_VEL_CHANNEL.subscriber().unwrap();
     loop {
         TIMER_SIGNAL.wait().await;
+        if let Some(left_cmd_vel) = subscriber.try_next_message_pure() {
+            info!("ctrler, left: {}", left_cmd_vel);
+            left_wheel.set_target_velocity(left_cmd_vel);
+        }
+
+        if let Some(right_cmd_vel) = subscriber.try_next_message_pure() {
+            info!("ctrler, right: {}", right_cmd_vel);
+            right_wheel.set_target_velocity(right_cmd_vel);
+        }
+
         left_wheel.run_pid_velocity_control();
         right_wheel.run_pid_velocity_control();
     }
 }
 
+#[embassy_executor::task]
+async fn read_data(mut rx: BufferedUartRx<'static>) {
+    let mut read_data: Vec<u8, 64> = Vec::new();
+    let publisher = CMD_VEL_CHANNEL.publisher().unwrap();
+
+    loop {
+        let mut raw_buffer: [u8; 8] = [0; 8];
+        let read_count = rx.read(&mut raw_buffer).await;
+        if let Ok(read_count) = read_count {
+            for i in 0..read_count {
+                let _ = read_data.push(raw_buffer[i]);
+            }
+        }
+
+        if let Some(&last_ch) = read_data.last() {
+            if last_ch == b'\r' || last_ch == b'\n' {
+                {
+                    let received_str = str::from_utf8(read_data.as_slice()).unwrap_or("");
+                    let parts: Vec<&str, 2> = received_str.trim().split(',').collect();
+                    if let (Ok(left_cmd_vel), Ok(right_cmd_vel)) =
+                        (parts[0].parse::<f32>(), parts[1].parse::<f32>())
+                    {
+                        
+                        // info!("Get: {}, {}", left_cmd_vel, right_cmd_vel);
+                        publisher.publish_immediate(left_cmd_vel);
+                        publisher.publish_immediate(right_cmd_vel);
+                    }
+                }
+                read_data.clear();
+            }
+        }
+    }
+}
+
+bind_interrupts!(struct Irqs {
+    USART6 => usart::BufferedInterruptHandler<peripherals::USART6>;
+});
+
 #[embassy_executor::main]
-async fn main(spawner: Spawner) {
-    // Init
+async fn main(spawner: Spawner) {    
+    // Init hardware
     let p = embassy_stm32::init(Default::default());
 
     let left_wheel_enc: Encoder<'_, TIM2, 400> = Encoder::new(p.TIM2, p.PA0, p.PA1);
@@ -106,8 +169,28 @@ async fn main(spawner: Spawner) {
         cortex_m::peripheral::NVIC::unmask(interrupt::TIM5);
     }
 
+    // Create USART6
+    let tx_buffer = TX_BUFFER.init([0; 32]);
+    let rx_buffer = RX_BUFFER.init([0; 32]);
+    let buffered_uart = BufferedUart::new(
+        p.USART6,
+        Irqs,
+        p.PA12,
+        p.PA11,
+        tx_buffer,
+        rx_buffer,
+        usart::Config::default(),
+    )
+    .unwrap();
+
+    let (_tx, rx) = buffered_uart.split();
+
     // Test
-    spawner.spawn(run(left_wheel, right_wheel)).unwrap();
+    spawner
+        .spawn(control_wheel_speed(left_wheel, right_wheel))
+        .unwrap();
+    spawner.spawn(read_data(rx)).unwrap();
+
     loop {
         Timer::after_secs(1).await;
     }
