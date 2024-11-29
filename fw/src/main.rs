@@ -1,10 +1,10 @@
 #![no_std]
 #![no_main]
 
-use nucleo_f401re_rust::encoder::Encoder;
-use nucleo_f401re_rust::motor::BldcMotor24H;
-use nucleo_f401re_rust::pid::Pid;
-use nucleo_f401re_rust::serial::PacketDecoder;
+use fw::encoder::Encoder;
+use fw::motor::BldcMotor24H;
+use fw::pid::Pid;
+use fw::serial::PacketDecoder;
 
 mod proto {
     #![allow(clippy::all)]

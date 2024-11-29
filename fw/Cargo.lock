@@ -531,6 +531,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "fw"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "defmt",
+ "defmt-rtt",
+ "embassy-executor",
+ "embassy-futures",
+ "embassy-stm32",
+ "embassy-sync",
+ "embassy-time",
+ "embedded-io",
+ "embedded-io-async",
+ "heapless",
+ "micropb",
+ "micropb-gen",
+ "never",
+ "panic-probe",
+ "static_cell",
+]
+
+[[package]]
 name = "hash32"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -619,29 +642,6 @@ name = "never"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c96aba5aa877601bb3f6dd6a63a969e1f82e60646e81e71b14496995e9853c91"
-
-[[package]]
-name = "nucleo_f401re_rust"
-version = "0.1.0"
-dependencies = [
- "cortex-m",
- "cortex-m-rt",
- "defmt",
- "defmt-rtt",
- "embassy-executor",
- "embassy-futures",
- "embassy-stm32",
- "embassy-sync",
- "embassy-time",
- "embedded-io",
- "embedded-io-async",
- "heapless",
- "micropb",
- "micropb-gen",
- "never",
- "panic-probe",
- "static_cell",
-]
 
 [[package]]
 name = "num-traits"

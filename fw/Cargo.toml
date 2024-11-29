@@ -1,5 +1,5 @@
 [package]
-name = "nucleo_f401re_rust"
+name = "fw"
 version = "0.1.0"
 edition = "2021"
 
