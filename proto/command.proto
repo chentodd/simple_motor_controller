@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+package command;
+
+message Command {
+    float left_wheel_target_vel = 1;
+    float right_wheel_target_vel = 2;
+}
