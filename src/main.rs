@@ -1,18 +1,23 @@
 #![no_std]
 #![no_main]
 
-use core::str;
-
 use nucleo_f401re_rust::encoder::Encoder;
 use nucleo_f401re_rust::motor::BldcMotor24H;
 use nucleo_f401re_rust::pid::Pid;
+use nucleo_f401re_rust::serial::PacketDecoder;
+
+mod proto {
+    #![allow(clippy::all)]
+    #![allow(nonstandard_style, unused, irrefutable_let_patterns)]
+    include!("proto_packet.rs");
+}
 
 use embedded_io_async::Read;
 
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, ThreadModeRawMutex};
-use embassy_sync::signal::Signal;
 use embassy_sync::pubsub::PubSubChannel;
+use embassy_sync::signal::Signal;
 use embassy_time::Timer;
 
 use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
@@ -28,9 +33,10 @@ use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::usart::{BufferedUart, BufferedUartRx};
 
 use heapless::Vec;
+use proto::command_::Command;
 use static_cell::StaticCell;
 
-use defmt::info;
+use defmt::{debug, info};
 use {defmt_rtt as _, panic_probe as _};
 
 const PERIOD_S: f32 = 0.005;
@@ -72,33 +78,30 @@ async fn control_wheel_speed(
 
 #[embassy_executor::task]
 async fn read_data(mut rx: BufferedUartRx<'static>) {
-    let mut read_data: Vec<u8, 64> = Vec::new();
     let publisher = CMD_VEL_CHANNEL.publisher().unwrap();
+
+    let mut packet_decoder = PacketDecoder::new();
+    let mut vel_cmd = Command::default();
+    let mut stream = Vec::<u8, 64>::new();
 
     loop {
         let mut raw_buffer: [u8; 8] = [0; 8];
         let read_count = rx.read(&mut raw_buffer).await;
         if let Ok(read_count) = read_count {
             for i in 0..read_count {
-                let _ = read_data.push(raw_buffer[i]);
+                let _ = stream.push(raw_buffer[i]);
             }
-        }
 
-        if let Some(&last_ch) = read_data.last() {
-            if last_ch == b'\r' || last_ch == b'\n' {
-                {
-                    let received_str = str::from_utf8(read_data.as_slice()).unwrap_or("");
-                    let parts: Vec<&str, 2> = received_str.trim().split(',').collect();
-                    if let (Ok(left_cmd_vel), Ok(right_cmd_vel)) =
-                        (parts[0].parse::<f32>(), parts[1].parse::<f32>())
-                    {
-                        
-                        // info!("Get: {}, {}", left_cmd_vel, right_cmd_vel);
-                        publisher.publish_immediate(left_cmd_vel);
-                        publisher.publish_immediate(right_cmd_vel);
-                    }
-                }
-                read_data.clear();
+            if packet_decoder.polling(stream.as_slice())
+                && packet_decoder.parse_proto_message(stream.as_slice(), &mut vel_cmd)
+            {
+                debug!(
+                    "parse ok, {}, {}",
+                    vel_cmd.left_wheel_target_vel, vel_cmd.right_wheel_target_vel
+                );
+                // publisher.publish_immediate(vel_cmd.left_wheel_target_vel);
+                // publisher.publish_immediate(vel_cmd.right_wheel_target_vel);
+                stream.clear();
             }
         }
     }
@@ -109,7 +112,7 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner) {    
+async fn main(spawner: Spawner) {
     // Init hardware
     let p = embassy_stm32::init(Default::default());
 
