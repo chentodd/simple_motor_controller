@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use embassy_stm32::mode::Async;
 use fw::encoder::Encoder;
 use fw::motor::BldcMotor24H;
 use fw::pid::Pid;
@@ -12,7 +13,7 @@ mod proto {
     include!("proto_packet.rs");
 }
 
-use embedded_io_async::Read;
+use embedded_io_async::{Read, Write};
 
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, ThreadModeRawMutex};
@@ -22,6 +23,7 @@ use embassy_time::Timer;
 
 use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
 use embassy_stm32::interrupt;
+use embassy_stm32::interrupt::InterruptExt;
 use embassy_stm32::pac;
 use embassy_stm32::peripherals::{self, TIM2, TIM3, TIM4};
 use embassy_stm32::{bind_interrupts, usart};
@@ -30,7 +32,7 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::{CountingMode, Timer as LLTimer};
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 
-use embassy_stm32::usart::{BufferedUart, BufferedUartRx};
+use embassy_stm32::usart::{BufferedUart, BufferedUartRx, BufferedUartTx, Uart, UartRx, UartTx};
 
 use heapless::Vec;
 use proto::command_::Command;
@@ -42,9 +44,6 @@ use {defmt_rtt as _, panic_probe as _};
 const PERIOD_S: f32 = 0.005;
 static TIMER_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 static CMD_VEL_CHANNEL: PubSubChannel<ThreadModeRawMutex, f32, 4, 1, 1> = PubSubChannel::new();
-
-static TX_BUFFER: StaticCell<[u8; 32]> = StaticCell::new();
-static RX_BUFFER: StaticCell<[u8; 32]> = StaticCell::new();
 
 #[interrupt]
 unsafe fn TIM5() {
@@ -77,7 +76,7 @@ async fn control_wheel_speed(
 }
 
 #[embassy_executor::task]
-async fn read_data(mut rx: BufferedUartRx<'static>) {
+async fn test_usart(mut rx: UartRx<'static, Async>, mut tx: UartTx<'static, Async>) {
     let publisher = CMD_VEL_CHANNEL.publisher().unwrap();
 
     let mut packet_decoder = PacketDecoder::new();
@@ -86,29 +85,29 @@ async fn read_data(mut rx: BufferedUartRx<'static>) {
 
     loop {
         let mut raw_buffer: [u8; 8] = [0; 8];
-        let read_count = rx.read(&mut raw_buffer).await;
+        let read_count = rx.read_until_idle(&mut raw_buffer).await;
         if let Ok(read_count) = read_count {
             for i in 0..read_count {
                 let _ = stream.push(raw_buffer[i]);
             }
 
             if packet_decoder.polling(stream.as_slice())
-                && packet_decoder.parse_proto_message(stream.as_slice(), &mut vel_cmd)
+            // && packet_decoder.parse_proto_message(stream.as_slice(), &mut vel_cmd)
             {
-                debug!(
-                    "parse ok, {}, {}",
-                    vel_cmd.left_wheel_target_vel, vel_cmd.right_wheel_target_vel
-                );
-                // publisher.publish_immediate(vel_cmd.left_wheel_target_vel);
-                // publisher.publish_immediate(vel_cmd.right_wheel_target_vel);
-                stream.clear();
+                // debug!(
+                //     "parse ok, {}, {}",
+                //     vel_cmd.left_wheel_target_vel, vel_cmd.right_wheel_target_vel
+                // );
+                // // publisher.publish_immediate(vel_cmd.left_wheel_target_vel);
+                // // publisher.publish_immediate(vel_cmd.right_wheel_target_vel);
+                // stream.clear();
             }
         }
     }
 }
 
 bind_interrupts!(struct Irqs {
-    USART6 => usart::BufferedInterruptHandler<peripherals::USART6>;
+    USART6 => usart::InterruptHandler<peripherals::USART6>;
 });
 
 #[embassy_executor::main]
@@ -172,27 +171,26 @@ async fn main(spawner: Spawner) {
         cortex_m::peripheral::NVIC::unmask(interrupt::TIM5);
     }
 
-    // Create USART6
-    let tx_buffer = TX_BUFFER.init([0; 32]);
-    let rx_buffer = RX_BUFFER.init([0; 32]);
-    let buffered_uart = BufferedUart::new(
+    // Create USART6 with DMA
+    let usart = Uart::new(
         p.USART6,
-        Irqs,
         p.PA12,
         p.PA11,
-        tx_buffer,
-        rx_buffer,
+        Irqs,
+        p.DMA2_CH6,
+        p.DMA2_CH1,
         usart::Config::default(),
     )
     .unwrap();
 
-    let (_tx, rx) = buffered_uart.split();
+    let (tx, rx) = usart.split();
 
     // Test
     spawner
         .spawn(control_wheel_speed(left_wheel, right_wheel))
         .unwrap();
-    spawner.spawn(read_data(rx)).unwrap();
+    // spawner.spawn(read_data(rx, tx)).unwrap();
+    spawner.spawn(test_usart(rx, tx)).unwrap();
 
     loop {
         Timer::after_secs(1).await;
