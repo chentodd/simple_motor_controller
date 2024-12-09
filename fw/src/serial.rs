@@ -1,16 +1,7 @@
 use core::{fmt::Debug, u32};
 use defmt::debug;
 use micropb::{MessageDecode, PbDecoder};
-
-#[repr(u8)]
-#[derive(PartialEq, Eq, Clone, Copy, Default, Debug)]
-pub enum MessageId {
-    #[default]
-    NoId = 0x00,
-    CommandVelId = 0x10,
-}
-
-const CRC_POLYNOMIAL: u8 = 0x07;
+use utils::*;
 
 #[repr(u8)]
 #[derive(Default, Debug)]
@@ -124,6 +115,8 @@ impl PacketDecoder {
                 // change to next state
                 self.packet_decode_state = PacketDecodeState::GetPacketBody;
             }
+
+            debug!("serial, get_header: {}, {}", self.message_id, self.len);
         }
     }
 
@@ -137,22 +130,13 @@ impl PacketDecoder {
     fn get_packet_body(&mut self, stream: &[u8]) {
         if stream.len() >= (self.len as usize) {
             self.packet_decode_state = PacketDecodeState::CheckCRC;
+            debug!("serial, get_packet_body: {:?}", stream);
         }
     }
 
     fn check_crc(&mut self, stream: &[u8]) {
-        let mut crc: u8 = 0xFF;
-        for &x in stream.iter() {
-            crc ^= x;
-            for _ in 0..8 {
-                if ((crc >> 7) & 0b01) != 0 {
-                    crc = (crc << 1) ^ CRC_POLYNOMIAL;
-                } else {
-                    crc <<= 1;
-                }
-            }
-        }
-
-        self.good_packet = crc == 0;
+        let n = stream.len();
+        self.good_packet = stream[n - 1] == calculate_crc(&stream[0..=n-2]);
+        debug!("serial, check_crc: {}", self.good_packet);
     }
 }
