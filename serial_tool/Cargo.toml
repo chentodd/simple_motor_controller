@@ -1,0 +1,13 @@
+[package]
+name = "serial_tool"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+micropb = { version = "0.1.0", features = ["std", "alloc"] }
+serialport = "4.6.0"
+
+utils = { version = "0.1.0", path = "../utils", features = ["std"] }
+
+[build-dependencies]
+micropb-gen = "0.1.0"
