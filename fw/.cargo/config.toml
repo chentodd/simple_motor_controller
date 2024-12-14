@@ -2,7 +2,7 @@
 runner = "probe-rs run --chip STM32F401RETx"
 
 [build]
-target = "thumbv7em-none-eabi"
+target = "thumbv7em-none-eabihf"
 
 [env]
-DEFMT_LOG = "info"
+DEFMT_LOG = "debug"
