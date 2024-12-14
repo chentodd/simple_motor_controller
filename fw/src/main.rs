@@ -13,8 +13,6 @@ mod proto {
     include!("proto_packet.rs");
 }
 
-use embedded_io_async::{Read, Write};
-
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, ThreadModeRawMutex};
 use embassy_sync::pubsub::PubSubChannel;
@@ -23,7 +21,6 @@ use embassy_time::Timer;
 
 use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
 use embassy_stm32::interrupt;
-use embassy_stm32::interrupt::InterruptExt;
 use embassy_stm32::pac;
 use embassy_stm32::peripherals::{self, TIM2, TIM3, TIM4};
 use embassy_stm32::{bind_interrupts, usart};
@@ -32,13 +29,11 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::{CountingMode, Timer as LLTimer};
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 
-use embassy_stm32::usart::{BufferedUart, BufferedUartRx, BufferedUartTx, Uart, UartRx, UartTx};
+use embassy_stm32::usart::{Uart, UartRx, UartTx};
 
-use heapless::Vec;
 use proto::command_::Command;
-use static_cell::StaticCell;
 
-use defmt::{debug, info};
+use defmt::debug;
 use {defmt_rtt as _, panic_probe as _};
 
 const PERIOD_S: f32 = 0.005;
@@ -61,12 +56,12 @@ async fn control_wheel_speed(
     loop {
         TIMER_SIGNAL.wait().await;
         if let Some(left_cmd_vel) = subscriber.try_next_message_pure() {
-            info!("ctrler, left: {}", left_cmd_vel);
+            debug!("ctrler, left: {}", left_cmd_vel);
             left_wheel.set_target_velocity(left_cmd_vel);
         }
 
         if let Some(right_cmd_vel) = subscriber.try_next_message_pure() {
-            info!("ctrler, right: {}", right_cmd_vel);
+            debug!("ctrler, right: {}", right_cmd_vel);
             right_wheel.set_target_velocity(right_cmd_vel);
         }
 
@@ -76,31 +71,32 @@ async fn control_wheel_speed(
 }
 
 #[embassy_executor::task]
-async fn test_usart(mut rx: UartRx<'static, Async>, mut tx: UartTx<'static, Async>) {
+async fn test_usart(mut rx: UartRx<'static, Async>, mut _tx: UartTx<'static, Async>) {
     let publisher = CMD_VEL_CHANNEL.publisher().unwrap();
 
     let mut packet_decoder = PacketDecoder::new();
     let mut vel_cmd = Command::default();
-    let mut stream = Vec::<u8, 64>::new();
 
     loop {
-        let mut raw_buffer: [u8; 8] = [0; 8];
+        let mut raw_buffer: [u8; 64] = [0; 64];
         let read_count = rx.read_until_idle(&mut raw_buffer).await;
-        if let Ok(read_count) = read_count {
-            for i in 0..read_count {
-                let _ = stream.push(raw_buffer[i]);
-            }
+        if let Ok(_read_count) = read_count {
+            if packet_decoder.is_packet_valid(&raw_buffer) {
+                if packet_decoder.parse_proto_message(&raw_buffer, &mut vel_cmd) {
+                    let mut left_vel = 0.0_f32;
+                    if let Some(val) = vel_cmd.left_wheel_target_vel() {
+                        left_vel = *val;
+                    }
 
-            if packet_decoder.polling(stream.as_slice())
-            // && packet_decoder.parse_proto_message(stream.as_slice(), &mut vel_cmd)
-            {
-                // debug!(
-                //     "parse ok, {}, {}",
-                //     vel_cmd.left_wheel_target_vel, vel_cmd.right_wheel_target_vel
-                // );
-                // // publisher.publish_immediate(vel_cmd.left_wheel_target_vel);
-                // // publisher.publish_immediate(vel_cmd.right_wheel_target_vel);
-                // stream.clear();
+                    let mut right_vel = 0.0_f32;
+                    if let Some(val) = vel_cmd.right_wheel_target_vel() {
+                        right_vel = *val;
+                    }
+
+                    debug!("parse ok, left: {}, {}", left_vel, right_vel);
+                    publisher.publish_immediate(vel_cmd.left_wheel_target_vel);
+                    publisher.publish_immediate(vel_cmd.right_wheel_target_vel);
+                }
             }
         }
     }
