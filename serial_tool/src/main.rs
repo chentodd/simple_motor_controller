@@ -1,6 +1,6 @@
 use std::io::Write;
-use std::time::Duration;
 use std::thread;
+use std::time::Duration;
 
 use micropb::{MessageEncode, PbEncoder};
 use utils::*;
@@ -22,20 +22,22 @@ fn main() {
     // Encode protobuf message
     let stream = Vec::<u8>::new();
     let mut encoder = PbEncoder::new(stream);
-    let cmd_proto_packet = Command {
-        left_wheel_target_vel: 100.0,
-        right_wheel_target_vel: -100.0
-    };
-    cmd_proto_packet.encode(&mut encoder).unwrap();
+    let mut cmd_proto_packet = Command::default();
 
     // Send out 4 bytes every second
-    thread::spawn(move || loop {
+    loop {
+        cmd_proto_packet.set_left_wheel_target_vel(0.0);
+        cmd_proto_packet.set_right_wheel_target_vel(0.0);
+        cmd_proto_packet.encode(&mut encoder).unwrap();
+
         let send_packet = create_packet(MessageId::CommandVelId, encoder.as_writer());
         cloned_port
             .write_all(&send_packet)
             .expect("Failed to write to serial port");
         thread::sleep(Duration::from_millis(1000));
-    });
+
+        println!("send: {:?}", send_packet);
+    }
 }
 
 pub fn create_packet(message_id: MessageId, proto_message: &[u8]) -> Vec<u8> {
@@ -44,10 +46,13 @@ pub fn create_packet(message_id: MessageId, proto_message: &[u8]) -> Vec<u8> {
     packet.push(message_id as u8);
     packet.extend_from_slice(&[0; LENGTH_TYPE_IN_BYTES]);
     packet.extend_from_slice(proto_message);
-    packet.push(calculate_crc(&packet));
+    packet.push(0);
 
     let length = packet.len() as u32;
     packet[1..=LENGTH_TYPE_IN_BYTES].copy_from_slice(&length.to_le_bytes());
+
+    let length = length as usize;
+    packet[length - 1] = calculate_crc(&packet[0..=length - 2]);
 
     packet
 }
