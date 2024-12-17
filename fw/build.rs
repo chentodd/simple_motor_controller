@@ -4,7 +4,10 @@ fn main() {
     let mut gen = Generator::new();
     gen.use_container_heapless()
         .add_protoc_arg("--proto_path=../proto")
-        .compile_protos(&["command.proto"], "src/proto_packet.rs")
+        .compile_protos(
+            &["motor.proto", "sensor.proto", "command.proto"],
+            "src/proto_packet.rs",
+        )
         .unwrap();
 
     println!("cargo:rustc-link-arg-bins=--nmagic");
