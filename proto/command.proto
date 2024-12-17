@@ -2,7 +2,16 @@ syntax = "proto3";
 
 package command;
 
-message Command {
-    optional float left_wheel_target_vel = 1;
-    optional float right_wheel_target_vel = 2;
+import "motor.proto";
+import "sensor.proto";
+
+message CommandRx {
+    optional motor.MotorRx left_motor = 1;
+    optional motor.MotorRx right_motor = 2;
+}
+
+message CommandTx {
+    optional motor.MotorTx left_motor = 1;
+    optional motor.MotorTx right_motor = 2;
+    optional sensor.Mpu6050Tx mpu6050 = 3;
 }

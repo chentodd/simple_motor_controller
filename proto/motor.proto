@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package motor;
+
+enum Operation {
+    Unspecified = 0;
+    IntpPos = 1;
+    IntpVel = 2;
+    PidVel = 3;
+    PidTune = 4;
+}
+
+message MotorRx {
+    Operation operation = 1;
+    optional float target_pos = 2;
+    optional float target_vel = 3;
+    optional float kp = 4;
+    optional float ki = 5;
+    optional float kd = 6;
+}
+
+message MotorTx {
+    Operation operation_display = 1;
+    optional float actual_pos = 2;
+    optional float actual_vel = 3;
+    optional float following_err = 4;
+}

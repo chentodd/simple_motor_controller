@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package sensor;
+
+message Mpu6050Tx {
+    optional float ax = 1;
+    optional float ay = 2;
+    optional float az = 3;
+    optional float gx = 4;
+    optional float gy = 5;
+    optional float gz = 6;
+}
