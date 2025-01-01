@@ -23,6 +23,7 @@ heapless = "0.8.0"
 static_cell = "2.1.0"
 micropb = { version = "0.1.0", features = ["container-heapless"] }
 never = { version = "0.1.0", default-features = false }
+num-traits = { version = "0.2", default-features = false }
 
 utils = { version = "0.1.0", path = "../utils", default-features = false}
 s_curve = { version = "0.1.0", path = "../s_curve", default-features = false }
@@ -31,4 +32,8 @@ s_curve = { version = "0.1.0", path = "../s_curve", default-features = false }
 micropb-gen = "0.1.0"
 
 [features]
-print-debug = []
+default = ["debug-rx", "debug-tx", "debug-motion"]
+debug-rx = []
+debug-tx = []
+debug-pid = []
+debug-motion = []

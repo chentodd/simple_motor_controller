@@ -549,6 +549,7 @@ dependencies = [
  "micropb",
  "micropb-gen",
  "never",
+ "num-traits",
  "panic-probe",
  "s_curve",
  "static_cell",
