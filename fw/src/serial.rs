@@ -1,6 +1,8 @@
 use core::u32;
 use defmt::debug;
+use heapless::Vec;
 use micropb::{MessageDecode, PbDecoder};
+
 use utils::*;
 
 #[derive(Default)]
@@ -42,15 +44,16 @@ impl PacketDecoder {
             if let Some(first_ch) = stream.first() {
                 match first_ch {
                     0x00 => self.message_id = MessageId::NoId,
-                    0x10 => self.message_id = MessageId::CommandVelId,
+                    0x10 => self.message_id = MessageId::CommandRx,
                     _ => (),
                 }
             }
 
             // Get [LEN:4]
+            #[cfg(feature = "debug-rx")]
             debug!("test: {:?}", &stream[1..=4]);
-            self.len = u32::from_le_bytes(stream[1..=4].try_into().unwrap());
 
+            self.len = u32::from_le_bytes(stream[1..=4].try_into().unwrap());
             if stream.len() >= (self.len as usize) {
                 let n = self.len as usize;
                 let actual_crc = stream[n - 1];
@@ -73,10 +76,31 @@ impl PacketDecoder {
                 return true;
             }
             Err(_e) => {
+                #[cfg(feature = "debug-rx")]
                 debug!("proto packet debug error");
             }
         }
 
         false
     }
+}
+
+// TODO, this function is nearly identical to the one in `serial_tool`, maybe we can
+// move all the code in this file to `serial_tool` since it doesn't need hardware
+// support
+pub fn encode_packet(message_id: MessageId, proto_message: &[u8]) -> Vec<u8, 128> {
+    let mut packet = Vec::<u8, 128>::new();
+
+    let _ = packet.push(message_id as u8);
+    let _ = packet.extend_from_slice(&[0; LENGTH_TYPE_IN_BYTES]);
+    let _ = packet.extend_from_slice(proto_message);
+    let _ = packet.push(0);
+
+    let length = packet.len() as u32;
+    packet[1..=LENGTH_TYPE_IN_BYTES].copy_from_slice(&length.to_le_bytes());
+
+    let length = length as usize;
+    packet[length - 1] = calculate_crc(&packet[0..=length - 2]);
+
+    packet
 }
