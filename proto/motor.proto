@@ -12,16 +12,17 @@ enum Operation {
 
 message MotorRx {
     Operation operation = 1;
-    optional float target_pos = 2;
+    optional float target_dist = 2;
     optional float target_vel = 3;
-    optional float kp = 4;
-    optional float ki = 5;
-    optional float kd = 6;
+    optional float target_vel_end = 4;
+    optional float kp = 5;
+    optional float ki = 6;
+    optional float kd = 7;
 }
 
 message MotorTx {
     Operation operation_display = 1;
-    optional float actual_pos = 2;
-    optional float actual_vel = 3;
-    optional float following_err = 4;
+    bool command_buffer_full = 2;
+    optional float actual_pos = 3;
+    optional float actual_vel = 4;
 }
