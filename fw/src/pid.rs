@@ -27,6 +27,10 @@ impl Pid {
         self.target_velocity_rpm = target_velocity_rpm;
     }
 
+    pub(crate) fn get_error(&self) -> f32 {
+        self.curr_error
+    }
+
     pub(crate) fn run(&mut self, curr_velocity_prm: f32, period_s: f32) -> f32 {
         self.prev_error = self.curr_error;
         self.curr_error = self.target_velocity_rpm - curr_velocity_prm;
