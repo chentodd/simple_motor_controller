@@ -6,7 +6,7 @@ use std::io::Write;
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct InterpolationData {
     pub pos: f32,
     pub dist: f32,
@@ -31,7 +31,7 @@ pub enum InterpolationStatus {
     Error,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct TargetData {
     pub dist: f32,
     pub vel_start: f32,
@@ -47,7 +47,7 @@ pub struct TargetData {
     dir: f32
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct SCurveConstraint {
     vel_limit: f32,
     acc_limit: f32,
@@ -55,7 +55,7 @@ struct SCurveConstraint {
     sampling_time: f32,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct SCurveInterpolator {
     intp_data: InterpolationData,
     intp_status: InterpolationStatus,
