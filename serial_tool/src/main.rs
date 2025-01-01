@@ -3,6 +3,7 @@ use std::thread;
 use std::time::Duration;
 
 use micropb::{MessageEncode, PbEncoder};
+use proto::motor_::Operation;
 use utils::*;
 
 mod proto {
@@ -10,7 +11,7 @@ mod proto {
     #![allow(nonstandard_style, unused, irrefutable_let_patterns)]
     include!("proto_packet.rs");
 }
-use proto::command_::*;
+use proto::{command_::*, motor_::{MotorRx, MotorTx}};
 
 fn main() {
     let mut port = serialport::new("/dev/ttyUSB0", 115200)
@@ -22,21 +23,35 @@ fn main() {
     // Encode protobuf message
     let stream = Vec::<u8>::new();
     let mut encoder = PbEncoder::new(stream);
-    let mut cmd_proto_packet = Command::default();
 
-    // Send out 4 bytes every second
+    let mut rx_packet = CommandRx::default();
+    let mut tx_packet = CommandTx::default();
+
+    let mut left_motor_command = MotorRx::default();
+    let mut right_motor_command = MotorRx::default();
+
+    let mut left_motor_data = MotorTx::default();
+    let mut right_motor_data = MotorTx::default();
+
     loop {
-        cmd_proto_packet.set_left_wheel_target_vel(0.0);
-        cmd_proto_packet.set_right_wheel_target_vel(0.0);
-        cmd_proto_packet.encode(&mut encoder).unwrap();
+        // Test
+        left_motor_command.operation = Operation::IntpVel;
+        left_motor_command.set_target_vel(500.0);
 
-        let send_packet = create_packet(MessageId::CommandVelId, encoder.as_writer());
+        right_motor_command.operation = Operation::IntpVel;
+        right_motor_command.set_target_vel(-500.0);
+
+        rx_packet.set_left_motor(left_motor_command.clone());
+        rx_packet.set_right_motor(right_motor_command.clone());
+
+        let send_packet = create_packet(MessageId::CommandRx, encoder.as_writer());
         cloned_port
             .write_all(&send_packet)
             .expect("Failed to write to serial port");
-        thread::sleep(Duration::from_millis(1000));
 
         println!("send: {:?}", send_packet);
+
+        thread::sleep(Duration::from_millis(100));
     }
 }
 
