@@ -7,8 +7,10 @@ pub enum MessageId {
     /// The default id, this means nothing
     #[default]
     NoId = 0x00,
-    /// For the packet that sends target velocity to firmware
-    CommandVelId = 0x10,
+    /// The packet that is sent by host, received by firmware
+    CommandRx = 0x10,
+    /// The packet that is sent by firmware, received by host
+    CommandTx = 0x11,
 }
 
 /// Polynomial for `CRC8` calculation
