@@ -1,5 +1,5 @@
-#[cfg(feature = "print-debug")]
-use defmt::info;
+#[cfg(feature = "debug-pid")]
+use defmt::debug;
 
 use embassy_stm32::gpio::Output;
 use embassy_stm32::timer::low_level::OutputPolarity;
@@ -49,11 +49,19 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> BldcMotor24H<
         self.encoder.get_curr_velocity_in_rpm(self.period_s)
     }
 
+    pub fn get_error(&self) -> f32 {
+        self.pid.get_error()
+    }
+
+    pub fn get_period_s(&self) -> f32 {
+        self.period_s
+    }
+
     pub fn run_pid_velocity_control(&mut self) {
         let curr_velocity_rpm = self.encoder.get_curr_velocity_in_rpm(self.period_s);
 
-        #[cfg(feature = "print-debug")]
-        info!("{}, {}", curr_velocity_rpm, self.encoder.curr_enc_count);
+        #[cfg(feature = "debug-pid")]
+        debug!("{}, {}", curr_velocity_rpm, self.encoder.curr_enc_count);
 
         let control_effort: f32 = self.pid.run(curr_velocity_rpm, self.period_s);
         let dir = if control_effort >= 0.0 { 1.0 } else { -1.0 };
