@@ -1,21 +1,30 @@
 #![no_std]
 #![no_main]
 
-use embassy_stm32::mode::Async;
+use core::f32;
+
 use fw::encoder::Encoder;
+use fw::motion::Motion;
 use fw::motor::BldcMotor24H;
 use fw::pid::Pid;
-use fw::serial::PacketDecoder;
+use fw::proto::command_::*;
+use fw::proto::motor_::{MotorRx, MotorTx};
+use fw::rpm_to_rad_s;
+use fw::serial::{encode_packet, PacketDecoder};
 
-mod proto {
-    #![allow(clippy::all)]
-    #![allow(nonstandard_style, unused, irrefutable_let_patterns)]
-    include!("proto_packet.rs");
-}
+use s_curve::*;
+use utils::MessageId;
+
+use defmt::debug;
+use {defmt_rtt as _, panic_probe as _};
+
+use heapless::Vec;
+use micropb::{MessageEncode, PbEncoder};
 
 use embassy_executor::Spawner;
+use embassy_stm32::mode::Async;
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, ThreadModeRawMutex};
-use embassy_sync::pubsub::PubSubChannel;
+use embassy_sync::pubsub::{PubSubChannel, WaitResult};
 use embassy_sync::signal::Signal;
 use embassy_time::Timer;
 
@@ -31,14 +40,19 @@ use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 
 use embassy_stm32::usart::{Uart, UartRx, UartTx};
 
-use proto::command_::Command;
+const PERIOD_S: f32 = 0.001;
+const PWM_HZ: u32 = 20_000;
+const VEL_LIMIT_RPM: f32 = 4000.0;
 
-use defmt::debug;
-use {defmt_rtt as _, panic_probe as _};
-
-const PERIOD_S: f32 = 0.005;
 static TIMER_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
-static CMD_VEL_CHANNEL: PubSubChannel<ThreadModeRawMutex, f32, 4, 1, 1> = PubSubChannel::new();
+static LEFT_COMMAND_CHANNEL: PubSubChannel<ThreadModeRawMutex, MotorRx, 16, 1, 1> =
+    PubSubChannel::new();
+static RIGHT_COMMAND_CHANNEL: PubSubChannel<ThreadModeRawMutex, MotorRx, 16, 1, 1> =
+    PubSubChannel::new();
+static LEFT_DATA_CHANNEL: PubSubChannel<ThreadModeRawMutex, MotorTx, 16, 1, 1> =
+    PubSubChannel::new();
+static RIGHT_DATA_CHANNEL: PubSubChannel<ThreadModeRawMutex, MotorTx, 16, 1, 1> =
+    PubSubChannel::new();
 
 #[interrupt]
 unsafe fn TIM5() {
@@ -48,55 +62,144 @@ unsafe fn TIM5() {
 }
 
 #[embassy_executor::task]
-async fn control_wheel_speed(
-    mut left_wheel: BldcMotor24H<'static, TIM2, TIM3>,
-    mut right_wheel: BldcMotor24H<'static, TIM4, TIM3>,
+async fn motion_task(
+    mut left_motion_controller: Motion<'static, TIM2, TIM3>,
+    mut right_motion_controller: Motion<'static, TIM4, TIM3>,
 ) {
-    let mut subscriber = CMD_VEL_CHANNEL.subscriber().unwrap();
+    let mut left_cmd_subscriber = LEFT_COMMAND_CHANNEL.subscriber().unwrap();
+    let mut right_cmd_subscriber = RIGHT_COMMAND_CHANNEL.subscriber().unwrap();
+
+    let left_data_publisher = LEFT_DATA_CHANNEL.publisher().unwrap();
+    let right_data_publisher = RIGHT_DATA_CHANNEL.publisher().unwrap();
+
+    let mut left_data = MotorTx::default();
+    let mut right_data = MotorTx::default();
+
     loop {
         TIMER_SIGNAL.wait().await;
-        if let Some(left_cmd_vel) = subscriber.try_next_message_pure() {
-            debug!("ctrler, left: {}", left_cmd_vel);
-            left_wheel.set_target_velocity(left_cmd_vel);
+
+        if left_motion_controller.ready() {
+            if let Some(left_command) = left_cmd_subscriber.try_next_message() {
+                match left_command {
+                    WaitResult::Lagged(val) => {
+                        #[cfg(feature = "debug-motion")]
+                        debug!("left command lag: {}", val);
+                    }
+                    WaitResult::Message(command) => {
+                        left_motion_controller.set_command(command);
+                    }
+                }
+            }
         }
 
-        if let Some(right_cmd_vel) = subscriber.try_next_message_pure() {
-            debug!("ctrler, right: {}", right_cmd_vel);
-            right_wheel.set_target_velocity(right_cmd_vel);
+        if right_motion_controller.ready() {
+            if let Some(right_command) = right_cmd_subscriber.try_next_message() {
+                match right_command {
+                    WaitResult::Lagged(val) => {
+                        #[cfg(feature = "debug-motion")]
+                        debug!("right command lag: {}", val);
+                    }
+                    WaitResult::Message(command) => {
+                        right_motion_controller.set_command(command);
+                    }
+                }
+            }
         }
 
-        left_wheel.run_pid_velocity_control();
-        right_wheel.run_pid_velocity_control();
+        left_motion_controller.run();
+        right_motion_controller.run();
+
+        left_data.operation_display = left_motion_controller.get_operation();
+        left_data.command_buffer_full = left_cmd_subscriber.is_full();
+        left_data.set_actual_pos(left_motion_controller.get_actual_position());
+        left_data.set_actual_vel(left_motion_controller.get_actual_velocity());
+
+        right_data.operation_display = right_motion_controller.get_operation();
+        right_data.command_buffer_full = right_cmd_subscriber.is_full();
+        right_data.set_actual_pos(right_motion_controller.get_actual_position());
+        right_data.set_actual_vel(right_motion_controller.get_actual_velocity());
+
+        left_data_publisher.publish_immediate(left_data.clone());
+        right_data_publisher.publish_immediate(right_data.clone());
     }
 }
 
 #[embassy_executor::task]
-async fn test_usart(mut rx: UartRx<'static, Async>, mut _tx: UartTx<'static, Async>) {
-    let publisher = CMD_VEL_CHANNEL.publisher().unwrap();
+async fn rx_task(mut rx: UartRx<'static, Async>) {
+    let left_cmd_publisher = LEFT_COMMAND_CHANNEL.publisher().unwrap();
+    let right_cmd_publisher = RIGHT_COMMAND_CHANNEL.publisher().unwrap();
 
     let mut packet_decoder = PacketDecoder::new();
-    let mut vel_cmd = Command::default();
+    let mut command_rx = CommandRx::default();
 
     loop {
-        let mut raw_buffer: [u8; 64] = [0; 64];
+        let mut raw_buffer = [0_u8; 128];
         let read_count = rx.read_until_idle(&mut raw_buffer).await;
         if let Ok(_read_count) = read_count {
             if packet_decoder.is_packet_valid(&raw_buffer) {
-                if packet_decoder.parse_proto_message(&raw_buffer, &mut vel_cmd) {
-                    let mut left_vel = 0.0_f32;
-                    if let Some(val) = vel_cmd.left_wheel_target_vel() {
-                        left_vel = *val;
+                if packet_decoder.parse_proto_message(&raw_buffer, &mut command_rx) {
+                    #[cfg(feature = "debug-rx")]
+                    debug!("parse ok, command_rx");
+
+                    if !left_cmd_publisher.is_full() {
+                        match left_cmd_publisher.try_publish(command_rx.left_motor.clone()) {
+                            Ok(()) => (),
+                            Err(_) => {
+                                #[cfg(feature = "debug-rx")]
+                                debug!("left_publisher, fail to publish");
+                            }
+                        }
                     }
 
-                    let mut right_vel = 0.0_f32;
-                    if let Some(val) = vel_cmd.right_wheel_target_vel() {
-                        right_vel = *val;
+                    if !right_cmd_publisher.is_full() {
+                        match right_cmd_publisher.try_publish(command_rx.right_motor.clone()) {
+                            Ok(()) => (),
+                            Err(_) => {
+                                #[cfg(feature = "debug-rx")]
+                                debug!("right_publisher, fail to publish");
+                            }
+                        }
                     }
-
-                    debug!("parse ok, left: {}, {}", left_vel, right_vel);
-                    publisher.publish_immediate(vel_cmd.left_wheel_target_vel);
-                    publisher.publish_immediate(vel_cmd.right_wheel_target_vel);
                 }
+            }
+        }
+    }
+}
+
+#[embassy_executor::task]
+async fn tx_task(mut tx: UartTx<'static, Async>) {
+    let mut left_data_subscriber = LEFT_DATA_CHANNEL.subscriber().unwrap();
+    let mut right_data_subscriber = RIGHT_DATA_CHANNEL.subscriber().unwrap();
+
+    let mut stream = Vec::<u8, 128>::new();
+    let mut packet_encoder = PbEncoder::new(&mut stream);
+    let mut command_tx = CommandTx::default();
+
+    loop {
+        match left_data_subscriber.try_next_message_pure() {
+            Some(left_data) => command_tx.set_left_motor(left_data),
+            None => command_tx.clear_left_motor(),
+        }
+
+        match right_data_subscriber.try_next_message_pure() {
+            Some(right_data) => command_tx.set_right_motor(right_data),
+            None => command_tx.clear_right_motor(),
+        }
+
+        match command_tx.encode(&mut packet_encoder) {
+            Ok(()) => {
+                let output_packet = encode_packet(MessageId::CommandTx, packet_encoder.as_writer());
+                match tx.write(&output_packet).await {
+                    Ok(()) => (),
+                    Err(err) => {
+                        #[cfg(feature = "debug-tx")]
+                        debug!("tx_task, fail to write packet, {}", err);
+                    }
+                }
+            }
+            Err(_) => {
+                #[cfg(feature = "debug-tx")]
+                debug!("tx_task, fail to encode packet");
             }
         }
     }
@@ -129,7 +232,7 @@ async fn main(spawner: Spawner) {
         None,
         Some(left_wheel_pwm_pin),
         None,
-        Hertz::khz(20),
+        Hertz::hz(PWM_HZ),
         Default::default(),
     );
 
@@ -137,7 +240,7 @@ async fn main(spawner: Spawner) {
     let left_wheel_pwm_ch = pwm_channels.ch3;
     let right_wheel_pwm_ch = pwm_channels.ch1;
 
-    // Create wheels
+    // Create motors
     let left_wheel = BldcMotor24H::new(
         left_wheel_enc,
         left_wheel_pwm_ch,
@@ -156,10 +259,24 @@ async fn main(spawner: Spawner) {
         PERIOD_S,
     );
 
+    // Create s_curve interpolator for left, right wheel
+    let vel_limit_rad_s = rpm_to_rad_s(VEL_LIMIT_RPM);
+    let left_s_curve_intper = SCurveInterpolator::new(
+        vel_limit_rad_s,
+        vel_limit_rad_s * 10.0,
+        vel_limit_rad_s * 100.0,
+        PERIOD_S,
+    );
+    let right_s_curve_intper = left_s_curve_intper.clone();
+
+    // Create motion controller for left, right wheel
+    let left_motion_controller = Motion::new(left_s_curve_intper, left_wheel);
+    let right_motion_controller = Motion::new(right_s_curve_intper, right_wheel);
+
     // Create timer
     let low_level_timer = LLTimer::new(p.TIM5);
     low_level_timer.set_counting_mode(CountingMode::EdgeAlignedUp);
-    low_level_timer.set_frequency(Hertz::hz(200));
+    low_level_timer.set_frequency(Hertz::hz((1.0 / PERIOD_S) as u32));
     low_level_timer.set_autoreload_preload(true);
     low_level_timer.enable_update_interrupt(true);
     low_level_timer.start();
@@ -181,12 +298,12 @@ async fn main(spawner: Spawner) {
 
     let (tx, rx) = usart.split();
 
-    // Test
+    // Spawn tasks
     spawner
-        .spawn(control_wheel_speed(left_wheel, right_wheel))
+        .spawn(motion_task(left_motion_controller, right_motion_controller))
         .unwrap();
-    // spawner.spawn(read_data(rx, tx)).unwrap();
-    spawner.spawn(test_usart(rx, tx)).unwrap();
+    spawner.spawn(rx_task(rx)).unwrap();
+    spawner.spawn(tx_task(tx)).unwrap();
 
     loop {
         Timer::after_secs(1).await;
