@@ -25,7 +25,7 @@ micropb = { version = "0.1.0", features = ["container-heapless"] }
 never = { version = "0.1.0", default-features = false }
 num-traits = { version = "0.2", default-features = false }
 
-utils = { version = "0.1.0", path = "../utils", default-features = false}
+utils = { version = "0.1.0", path = "../utils", default-features = false }
 s_curve = { version = "0.1.0", path = "../s_curve", default-features = false }
 
 [build-dependencies]
