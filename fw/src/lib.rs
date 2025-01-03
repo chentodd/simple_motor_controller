@@ -4,7 +4,6 @@ pub mod encoder;
 pub mod motion;
 pub mod motor;
 pub mod pid;
-pub mod serial;
 
 pub mod proto {
     #![allow(clippy::all)]
