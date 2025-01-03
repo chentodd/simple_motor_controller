@@ -2,7 +2,7 @@ use std::io::Write;
 use std::thread;
 use std::time::Duration;
 
-use micropb::{MessageEncode, PbEncoder};
+use micropb::PbEncoder;
 use proto::motor_::Operation;
 use utils::*;
 
@@ -11,30 +11,35 @@ mod proto {
     #![allow(nonstandard_style, unused, irrefutable_let_patterns)]
     include!("proto_packet.rs");
 }
-use proto::{command_::*, motor_::{MotorRx, MotorTx}};
+use proto::{
+    command_::*,
+    motor_::MotorRx,
+};
 
 fn main() {
-    let mut port = serialport::new("/dev/ttyUSB0", 115200)
+    let mut _port = serialport::new("/dev/ttyUSB0", 115200)
         .open()
         .expect("Failed to open serial port");
 
-    let mut cloned_port = port.try_clone().expect("Failed to clone");
+    let mut cloned_port = _port.try_clone().expect("Failed to clone");
 
-    // Encode protobuf message
     let stream = Vec::<u8>::new();
-    let mut encoder = PbEncoder::new(stream);
+    let pb_encoder = PbEncoder::new(stream);
+
+    let output_packet_buffer = [0_u8; 128];
+    let mut packet_encoder = PacketEncoder::new(output_packet_buffer);
+
+    let mut input_packet_buffer = [0_u8; 128];
+    let mut input_packet = Vec::<u8>::new();
+    let mut packet_decoder = PacketDecoder::new();
 
     let mut rx_packet = CommandRx::default();
     let mut tx_packet = CommandTx::default();
 
     let mut left_motor_command = MotorRx::default();
     let mut right_motor_command = MotorRx::default();
-
-    let mut left_motor_data = MotorTx::default();
-    let mut right_motor_data = MotorTx::default();
-
     loop {
-        // Test
+        // Test send
         left_motor_command.operation = Operation::IntpVel;
         left_motor_command.set_target_vel(500.0);
 
@@ -44,30 +49,30 @@ fn main() {
         rx_packet.set_left_motor(left_motor_command.clone());
         rx_packet.set_right_motor(right_motor_command.clone());
 
-        let send_packet = create_packet(MessageId::CommandRx, encoder.as_writer());
+        let output_packet = packet_encoder.create_packet(MessageId::CommandRx, pb_encoder.as_writer());
         cloned_port
-            .write_all(&send_packet)
+            .write_all(output_packet)
             .expect("Failed to write to serial port");
 
-        println!("send: {:?}", send_packet);
+        println!("send: {:?}", output_packet);
+
+        // Test get
+        input_packet_buffer.fill(0);
+        let read_count = cloned_port.read(&mut input_packet_buffer);
+        if let Ok(_read_count) = read_count {
+            input_packet.extend_from_slice(&input_packet_buffer);
+            if packet_decoder.is_packet_valid(&input_packet) {
+                if packet_decoder.parse_proto_message(&input_packet, &mut tx_packet) {
+                    let left_motor_data = tx_packet.left_motor.clone();
+                    let right_motor_data = tx_packet.right_motor.clone();
+                    input_packet.clear();
+
+                    println!("get: {:?}", left_motor_data);
+                    println!("get: {:?}", right_motor_data);
+                }
+            }
+        }
 
         thread::sleep(Duration::from_millis(100));
     }
-}
-
-pub fn create_packet(message_id: MessageId, proto_message: &[u8]) -> Vec<u8> {
-    let mut packet = Vec::<u8>::new();
-
-    packet.push(message_id as u8);
-    packet.extend_from_slice(&[0; LENGTH_TYPE_IN_BYTES]);
-    packet.extend_from_slice(proto_message);
-    packet.push(0);
-
-    let length = packet.len() as u32;
-    packet[1..=LENGTH_TYPE_IN_BYTES].copy_from_slice(&length.to_le_bytes());
-
-    let length = length as usize;
-    packet[length - 1] = calculate_crc(&packet[0..=length - 2]);
-
-    packet
 }
