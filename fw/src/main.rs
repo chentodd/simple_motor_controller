@@ -10,10 +10,9 @@ use fw::pid::Pid;
 use fw::proto::command_::*;
 use fw::proto::motor_::{MotorRx, MotorTx};
 use fw::rpm_to_rad_s;
-use fw::serial::{encode_packet, PacketDecoder};
 
 use s_curve::*;
-use utils::MessageId;
+use utils::*;
 
 use defmt::debug;
 use {defmt_rtt as _, panic_probe as _};
@@ -172,8 +171,11 @@ async fn tx_task(mut tx: UartTx<'static, Async>) {
     let mut right_data_subscriber = RIGHT_DATA_CHANNEL.subscriber().unwrap();
 
     let mut stream = Vec::<u8, 128>::new();
-    let mut packet_encoder = PbEncoder::new(&mut stream);
+    let mut pb_encoder = PbEncoder::new(&mut stream);
     let mut command_tx = CommandTx::default();
+
+    let output_packet_buffer = [0_u8; 128];
+    let mut packet_encoder = PacketEncoder::new(output_packet_buffer);
 
     loop {
         match left_data_subscriber.try_next_message_pure() {
@@ -186,9 +188,10 @@ async fn tx_task(mut tx: UartTx<'static, Async>) {
             None => command_tx.clear_right_motor(),
         }
 
-        match command_tx.encode(&mut packet_encoder) {
+        match command_tx.encode(&mut pb_encoder) {
             Ok(()) => {
-                let output_packet = encode_packet(MessageId::CommandTx, packet_encoder.as_writer());
+                let output_packet =
+                    packet_encoder.create_packet(MessageId::CommandTx, pb_encoder.as_writer());
                 match tx.write(&output_packet).await {
                     Ok(()) => (),
                     Err(err) => {
