@@ -16,6 +16,7 @@ pub struct BldcMotor24H<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Cha
     _break_pin: Output<'a>,
     pid: Pid,
     period_s: f32,
+    curr_vel: f32,
 }
 
 impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> BldcMotor24H<'a, T1, T2> {
@@ -38,6 +39,7 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> BldcMotor24H<
             _break_pin: break_pin,
             pid: pid,
             period_s: period_s,
+            curr_vel: 0.0
         }
     }
 
@@ -45,8 +47,8 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> BldcMotor24H<
         self.pid.set_target_velocity(target_velocity_rpm);
     }
 
-    pub fn get_current_velocity(&mut self) -> f32 {
-        self.encoder.get_curr_velocity_in_rpm(self.period_s)
+    pub fn get_current_velocity(&self) -> f32 {
+        self.curr_vel
     }
 
     pub fn get_error(&self) -> f32 {
@@ -58,12 +60,12 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> BldcMotor24H<
     }
 
     pub fn run_pid_velocity_control(&mut self) {
-        let curr_velocity_rpm = self.encoder.get_curr_velocity_in_rpm(self.period_s);
+        self.curr_vel = self.encoder.get_curr_velocity_in_rpm(self.period_s);
 
         #[cfg(feature = "debug-pid")]
-        debug!("{}, {}", curr_velocity_rpm, self.encoder.curr_enc_count);
+        debug!("{}, {}", self.curr_vel, self.encoder.curr_enc_count);
 
-        let control_effort: f32 = self.pid.run(curr_velocity_rpm, self.period_s);
+        let control_effort: f32 = self.pid.run(self.curr_vel, self.period_s);
         let dir = if control_effort >= 0.0 { 1.0 } else { -1.0 };
 
         let duty_cycle_percent: u8 = (control_effort * dir * 100.0) as u8;
