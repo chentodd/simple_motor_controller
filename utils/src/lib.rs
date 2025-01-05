@@ -26,6 +26,12 @@ use micropb::{MessageDecode, PbDecoder};
 #[cfg(all(not(feature = "std"), feature = "debug"))]
 use defmt::println;
 
+/// Polynomial for `CRC8` calculation
+pub const CRC_POLYNOMIAL: u8 = 0x07;
+
+/// Define the size of `length` field in packet.
+pub const LENGTH_TYPE_IN_BYTES: usize = 4;
+
 /// Define the id of the packet that communicates between firmware and tools
 #[repr(u8)]
 #[derive(PartialEq, Eq, Clone, Copy, Default, Debug)]
@@ -39,11 +45,15 @@ pub enum MessageId {
     CommandTx = 0x11,
 }
 
-/// Polynomial for `CRC8` calculation
-pub const CRC_POLYNOMIAL: u8 = 0x07;
-
-/// Define the size of `length` field in packet.
-pub const LENGTH_TYPE_IN_BYTES: usize = 4;
+impl MessageId {
+    fn from_u8(val: u8) -> MessageId {
+        match val {
+            0x10 => MessageId::CommandRx,
+            0x11 => MessageId::CommandTx,
+            _ => MessageId::NoId,
+        }
+    }
+}
 
 /// Helper that calculates CRC8 using [CRC_POLYNOMIAL]
 ///
@@ -91,52 +101,63 @@ impl<const N: usize> PacketEncoder<N> {
         let length = (1 + LENGTH_TYPE_IN_BYTES + proto_message.len() + 1) as u32;
         self.buffer[1..=LENGTH_TYPE_IN_BYTES].copy_from_slice(&length.to_le_bytes());
 
+        self.buffer[LENGTH_TYPE_IN_BYTES + 1..=(LENGTH_TYPE_IN_BYTES + proto_message.len())]
+            .copy_from_slice(proto_message);
+
         let length = length as usize;
         self.buffer[length - 1] = calculate_crc(&self.buffer[0..=length - 2]);
 
-        &self.buffer[0..=length]
+        &self.buffer[0..length]
     }
 }
 
 #[derive(Default)]
 pub struct PacketDecoder {
     len: u32,
-    message_id: MessageId,
 }
 
 impl PacketDecoder {
     pub fn new() -> Self {
         Self {
             len: u32::MAX,
-            message_id: MessageId::NoId,
         }
     }
 
-    pub fn is_packet_valid(&mut self, stream: &[u8]) -> bool {
+    pub fn get_valid_packet_index(&mut self, stream: &[u8]) -> Option<usize> {
         if stream.len() >= size_of::<MessageId>() + LENGTH_TYPE_IN_BYTES {
-            // Get [MESSAGE_ID:1]
-            if let Some(first_ch) = stream.first() {
-                match first_ch {
-                    0x00 => self.message_id = MessageId::NoId,
-                    0x10 => self.message_id = MessageId::CommandRx,
-                    _ => (),
+            for i in 0..stream.len() {
+                // Check [MESSAGE_ID:1]
+                if MessageId::from_u8(stream[i]) == MessageId::NoId {
+                    continue;
                 }
-            }
+    
+                #[cfg(feature = "debug")]
+                println!("is_packet_valid: {:?}", &stream[1..=4]);
 
-            #[cfg(feature = "debug")]
-            println!("is_packet_valid: {:?}", &stream[1..=4]);
+                // Check [LEN:4]
+                let i = i + 1;
+                if i + 4 < stream.len() {
+                    self.len = u32::from_le_bytes(stream[i..i + 4].try_into().unwrap());
+                    if self.len == 0 {
+                        continue;
+                    }
+                }
 
-            // Get [LEN:4]
-            self.len = u32::from_le_bytes(stream[1..=4].try_into().unwrap());
-            if stream.len() >= (self.len as usize) {
+                // Check CRC
+                let i = i - 1;
                 let n = self.len as usize;
-                let actual_crc = stream[n - 1];
-                let expected_crc = calculate_crc(&stream[0..=n - 2]);
-                return actual_crc == expected_crc;
+                if i + n - 1 < stream.len() {
+                    let actual_crc = stream[i + n - 1];
+                    let expected_crc = calculate_crc(&stream[i..=i + n - 2]);
+
+                    if actual_crc == expected_crc {
+                        return Some(i);
+                    }
+                }
             }
         }
 
-        false
+        None
     }
 
     pub fn parse_proto_message(&mut self, stream: &[u8], packet: &mut impl MessageDecode) -> bool {
