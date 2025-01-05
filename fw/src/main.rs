@@ -3,6 +3,7 @@
 
 use core::f32;
 
+use embassy_futures::join;
 use fw::encoder::Encoder;
 use fw::motion::Motion;
 use fw::motor::BldcMotor24H;
@@ -130,13 +131,14 @@ async fn rx_task(mut rx: UartRx<'static, Async>) {
 
     let mut packet_decoder = PacketDecoder::new();
     let mut command_rx = CommandRx::default();
-
     loop {
         let mut raw_buffer = [0_u8; 128];
         let read_count = rx.read_until_idle(&mut raw_buffer).await;
         if let Ok(_read_count) = read_count {
-            if packet_decoder.is_packet_valid(&raw_buffer) {
-                if packet_decoder.parse_proto_message(&raw_buffer, &mut command_rx) {
+            if let Some(good_packet_index) = packet_decoder.get_valid_packet_index(&raw_buffer) {
+                if packet_decoder
+                    .parse_proto_message(&raw_buffer[good_packet_index..], &mut command_rx)
+                {
                     #[cfg(feature = "debug-rx")]
                     debug!("parse ok, command_rx");
 
@@ -170,23 +172,23 @@ async fn tx_task(mut tx: UartTx<'static, Async>) {
     let mut left_data_subscriber = LEFT_DATA_CHANNEL.subscriber().unwrap();
     let mut right_data_subscriber = RIGHT_DATA_CHANNEL.subscriber().unwrap();
 
-    let mut stream = Vec::<u8, 128>::new();
-    let mut pb_encoder = PbEncoder::new(&mut stream);
     let mut command_tx = CommandTx::default();
 
     let output_packet_buffer = [0_u8; 128];
     let mut packet_encoder = PacketEncoder::new(output_packet_buffer);
 
     loop {
-        match left_data_subscriber.try_next_message_pure() {
-            Some(left_data) => command_tx.set_left_motor(left_data),
-            None => command_tx.clear_left_motor(),
-        }
+        let (left_data, right_data) = join::join(
+            left_data_subscriber.next_message_pure(),
+            right_data_subscriber.next_message_pure(),
+        )
+        .await;
 
-        match right_data_subscriber.try_next_message_pure() {
-            Some(right_data) => command_tx.set_right_motor(right_data),
-            None => command_tx.clear_right_motor(),
-        }
+        command_tx.set_left_motor(left_data);
+        command_tx.set_right_motor(right_data);
+
+        let mut stream = Vec::<u8, 128>::new();
+        let mut pb_encoder = PbEncoder::new(&mut stream);
 
         match command_tx.encode(&mut pb_encoder) {
             Ok(()) => {
@@ -194,9 +196,9 @@ async fn tx_task(mut tx: UartTx<'static, Async>) {
                     packet_encoder.create_packet(MessageId::CommandTx, pb_encoder.as_writer());
                 match tx.write(&output_packet).await {
                     Ok(()) => (),
-                    Err(err) => {
+                    Err(_err) => {
                         #[cfg(feature = "debug-tx")]
-                        debug!("tx_task, fail to write packet, {}", err);
+                        debug!("tx_task, fail to write packet, {}", _err);
                     }
                 }
             }
