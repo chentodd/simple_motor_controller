@@ -39,7 +39,7 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> BldcMotor24H<
             _break_pin: break_pin,
             pid: pid,
             period_s: period_s,
-            curr_vel: 0.0
+            curr_vel: 0.0,
         }
     }
 
