@@ -37,7 +37,6 @@ fn main() {
         let mut input_packet_buffer = [0_u8; 128];
         let read_count = cloned_port.read(&mut input_packet_buffer);
         if let Ok(_read_count) = read_count {
-            //println!("{:?}", input_packet_buffer);
             if let Some(good_start_index) =
                 packet_decoder.get_valid_packet_index(&input_packet_buffer)
             {
@@ -53,7 +52,7 @@ fn main() {
                 }
             }
         }
-        cloned_port.flush().unwrap();
+        cloned_port.clear(serialport::ClearBuffer::Input).unwrap();
         thread::sleep(Duration::from_millis(200));
     });
 
