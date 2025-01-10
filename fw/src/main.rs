@@ -185,7 +185,6 @@ async fn tx_task(mut tx: UartTx<'static, Async>) {
     let output_packet_buffer = [0_u8; 128];
     let mut packet_encoder = PacketEncoder::new(output_packet_buffer);
     loop {
-        Timer::after_secs(1000).await;
         let command_tx = motion_data_receiver.get().await;
 
         let mut stream = Vec::<u8, 128>::new();
