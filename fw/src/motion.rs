@@ -2,9 +2,8 @@
 use defmt::debug;
 
 use core::f32;
-use num_traits::Float;
-
 use embassy_stm32::timer::GeneralInstance4Channel;
+use num_traits::Float;
 
 use crate::motor::*;
 use crate::proto::motor_::{MotorRx, Operation};
@@ -44,7 +43,7 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1
                 #[cfg(feature = "debug-motion")]
                 debug!("ready, vel, {}", self.motor.get_error());
 
-                return self.motor.get_error().abs() <= 1.0;
+                return self.motor.get_error().abs() <= 60.0;
             }
             _ => (),
         }
