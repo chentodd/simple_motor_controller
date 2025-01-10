@@ -2,8 +2,6 @@
 #![no_main]
 
 use core::f32;
-
-use embassy_futures::join;
 use fw::encoder::Encoder;
 use fw::motion::Motion;
 use fw::motor::BldcMotor24H;
@@ -15,21 +13,29 @@ use fw::rpm_to_rad_s;
 use s_curve::*;
 use utils::*;
 
+#[cfg(any(
+    feature = "debug-rx",
+    feature = "debug-tx",
+    feature = "debug-pid",
+    feature = "debug-motion"
+))]
 use defmt::debug;
 use {defmt_rtt as _, panic_probe as _};
 
 use heapless::Vec;
 use micropb::{MessageEncode, PbEncoder};
 
-use embassy_executor::Spawner;
-use embassy_stm32::mode::Async;
-use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, ThreadModeRawMutex};
+use embassy_executor::{InterruptExecutor, Spawner};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::pubsub::{PubSubChannel, WaitResult};
 use embassy_sync::signal::Signal;
+use embassy_sync::watch::Watch;
 use embassy_time::Timer;
 
 use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
 use embassy_stm32::interrupt;
+use embassy_stm32::interrupt::{InterruptExt, Priority};
+use embassy_stm32::mode::Async;
 use embassy_stm32::pac;
 use embassy_stm32::peripherals::{self, TIM2, TIM3, TIM4};
 use embassy_stm32::{bind_interrupts, usart};
@@ -40,26 +46,32 @@ use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 
 use embassy_stm32::usart::{Uart, UartRx, UartTx};
 
-const PERIOD_S: f32 = 0.001;
+const PERIOD_S: f32 = 0.005;
 const PWM_HZ: u32 = 20_000;
 const VEL_LIMIT_RPM: f32 = 4000.0;
 
 static TIMER_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
-static LEFT_COMMAND_CHANNEL: PubSubChannel<ThreadModeRawMutex, MotorRx, 16, 1, 1> =
+static LEFT_COMMAND_CHANNEL: PubSubChannel<CriticalSectionRawMutex, MotorRx, 16, 1, 1> =
     PubSubChannel::new();
-static RIGHT_COMMAND_CHANNEL: PubSubChannel<ThreadModeRawMutex, MotorRx, 16, 1, 1> =
+static RIGHT_COMMAND_CHANNEL: PubSubChannel<CriticalSectionRawMutex, MotorRx, 16, 1, 1> =
     PubSubChannel::new();
-static LEFT_DATA_CHANNEL: PubSubChannel<ThreadModeRawMutex, MotorTx, 16, 1, 1> =
-    PubSubChannel::new();
-static RIGHT_DATA_CHANNEL: PubSubChannel<ThreadModeRawMutex, MotorTx, 16, 1, 1> =
-    PubSubChannel::new();
+static MOTION_DATA: Watch<CriticalSectionRawMutex, CommandTx, 1> = Watch::new();
+
+static EXECUTOR_TIMER: InterruptExecutor = InterruptExecutor::new();
 
 #[interrupt]
 unsafe fn TIM5() {
-    // Trigger the signal to notify the task
-    TIMER_SIGNAL.signal(());
-    pac::TIM5.sr().modify(|r| r.set_uif(false));
+    let sr = pac::TIM5.sr().read();
+    if sr.uif() {
+        pac::TIM5.sr().modify(|r| r.set_uif(false));
+        EXECUTOR_TIMER.on_interrupt();
+        TIMER_SIGNAL.signal(());
+    }
 }
+
+bind_interrupts!(struct Irqs {
+    USART6 => usart::InterruptHandler<peripherals::USART6>;
+});
 
 #[embassy_executor::task]
 async fn motion_task(
@@ -68,22 +80,20 @@ async fn motion_task(
 ) {
     let mut left_cmd_subscriber = LEFT_COMMAND_CHANNEL.subscriber().unwrap();
     let mut right_cmd_subscriber = RIGHT_COMMAND_CHANNEL.subscriber().unwrap();
-
-    let left_data_publisher = LEFT_DATA_CHANNEL.publisher().unwrap();
-    let right_data_publisher = RIGHT_DATA_CHANNEL.publisher().unwrap();
+    let motion_data_sender = MOTION_DATA.sender();
 
     let mut left_data = MotorTx::default();
     let mut right_data = MotorTx::default();
-
+    let mut tx_data = CommandTx::default();
     loop {
         TIMER_SIGNAL.wait().await;
 
         if left_motion_controller.ready() {
             if let Some(left_command) = left_cmd_subscriber.try_next_message() {
                 match left_command {
-                    WaitResult::Lagged(val) => {
+                    WaitResult::Lagged(_val) => {
                         #[cfg(feature = "debug-motion")]
-                        debug!("left command lag: {}", val);
+                        debug!("left command lag: {}", _val);
                     }
                     WaitResult::Message(command) => {
                         left_motion_controller.set_command(command);
@@ -95,9 +105,9 @@ async fn motion_task(
         if right_motion_controller.ready() {
             if let Some(right_command) = right_cmd_subscriber.try_next_message() {
                 match right_command {
-                    WaitResult::Lagged(val) => {
+                    WaitResult::Lagged(_val) => {
                         #[cfg(feature = "debug-motion")]
-                        debug!("right command lag: {}", val);
+                        debug!("right command lag: {}", _val);
                     }
                     WaitResult::Message(command) => {
                         right_motion_controller.set_command(command);
@@ -119,8 +129,9 @@ async fn motion_task(
         right_data.set_actual_pos(right_motion_controller.get_actual_position());
         right_data.set_actual_vel(right_motion_controller.get_actual_velocity());
 
-        left_data_publisher.publish_immediate(left_data.clone());
-        right_data_publisher.publish_immediate(right_data.clone());
+        tx_data.set_left_motor(left_data.clone());
+        tx_data.set_right_motor(right_data.clone());
+        motion_data_sender.send(tx_data.clone());
     }
 }
 
@@ -169,27 +180,16 @@ async fn rx_task(mut rx: UartRx<'static, Async>) {
 
 #[embassy_executor::task]
 async fn tx_task(mut tx: UartTx<'static, Async>) {
-    let mut left_data_subscriber = LEFT_DATA_CHANNEL.subscriber().unwrap();
-    let mut right_data_subscriber = RIGHT_DATA_CHANNEL.subscriber().unwrap();
-
-    let mut command_tx = CommandTx::default();
+    let mut motion_data_receiver = MOTION_DATA.receiver().unwrap();
 
     let output_packet_buffer = [0_u8; 128];
     let mut packet_encoder = PacketEncoder::new(output_packet_buffer);
-
     loop {
-        let (left_data, right_data) = join::join(
-            left_data_subscriber.next_message_pure(),
-            right_data_subscriber.next_message_pure(),
-        )
-        .await;
-
-        command_tx.set_left_motor(left_data);
-        command_tx.set_right_motor(right_data);
+        Timer::after_secs(1000).await;
+        let command_tx = motion_data_receiver.get().await;
 
         let mut stream = Vec::<u8, 128>::new();
         let mut pb_encoder = PbEncoder::new(&mut stream);
-
         match command_tx.encode(&mut pb_encoder) {
             Ok(()) => {
                 let output_packet =
@@ -209,10 +209,6 @@ async fn tx_task(mut tx: UartTx<'static, Async>) {
         }
     }
 }
-
-bind_interrupts!(struct Irqs {
-    USART6 => usart::InterruptHandler<peripherals::USART6>;
-});
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -285,9 +281,6 @@ async fn main(spawner: Spawner) {
     low_level_timer.set_autoreload_preload(true);
     low_level_timer.enable_update_interrupt(true);
     low_level_timer.start();
-    unsafe {
-        cortex_m::peripheral::NVIC::unmask(interrupt::TIM5);
-    }
 
     // Create USART6 with DMA
     let usart = Uart::new(
@@ -304,13 +297,16 @@ async fn main(spawner: Spawner) {
     let (tx, rx) = usart.split();
 
     // Spawn tasks
-    spawner
+    interrupt::TIM5.set_priority(Priority::P6);
+    let timer_spawner = EXECUTOR_TIMER.start(interrupt::TIM5);
+    timer_spawner
         .spawn(motion_task(left_motion_controller, right_motion_controller))
         .unwrap();
+
     spawner.spawn(rx_task(rx)).unwrap();
     spawner.spawn(tx_task(tx)).unwrap();
 
     loop {
-        Timer::after_secs(1).await;
+        Timer::after_secs(3).await;
     }
 }
