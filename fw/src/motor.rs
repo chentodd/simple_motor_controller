@@ -33,12 +33,12 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> BldcMotor24H<
         pwm_channel.enable();
 
         Self {
-            encoder: encoder,
-            pwm_channel: pwm_channel,
-            dir_pin: dir_pin,
+            encoder,
+            pwm_channel,
+            dir_pin,
             _break_pin: break_pin,
-            pid: pid,
-            period_s: period_s,
+            pid,
+            period_s,
             curr_vel: 0.0,
         }
     }

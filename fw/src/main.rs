@@ -193,7 +193,7 @@ async fn tx_task(mut tx: UartTx<'static, Async>) {
             Ok(()) => {
                 let output_packet =
                     packet_encoder.create_packet(MessageId::CommandTx, pb_encoder.as_writer());
-                match tx.write(&output_packet).await {
+                match tx.write(output_packet).await {
                     Ok(()) => (),
                     Err(_err) => {
                         #[cfg(feature = "debug-tx")]

@@ -12,14 +12,14 @@ pub struct Pid {
 impl Pid {
     pub fn new(kp: f32, ki: f32, kd: f32, output_limit: f32) -> Self {
         Self {
-            kp: kp,
-            ki: ki,
-            kd: kd,
+            kp,
+            ki,
+            kd,
             target_velocity_rpm: 0.0,
             curr_error: 0.0,
             prev_error: 0.0,
             accumulated_error: 0.0,
-            output_limit: output_limit,
+            output_limit,
         }
     }
 
