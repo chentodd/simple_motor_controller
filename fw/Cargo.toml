@@ -32,7 +32,7 @@ s_curve = { version = "0.1.0", path = "../s_curve", default-features = false }
 micropb-gen = "0.1.0"
 
 [features]
-default = ["debug-rx", "debug-tx", "debug-motion"]
+default = []
 debug-rx = []
 debug-tx = []
 debug-pid = []
