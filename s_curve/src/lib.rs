@@ -98,14 +98,14 @@ impl SCurveInterpolator {
         };
 
         // Calculate a_max and j_max from v_max using simple equation
-        let acc_max = vel_max / t;
+        let acc_max = vel_max / t / 100.0;
         let acc_max = if acc_max <= 1e-6 || acc_max > self.motion_constraint.acc_limit {
             self.motion_constraint.acc_limit
         } else {
             acc_max
         };
 
-        let jerk_max = acc_max / t;
+        let jerk_max = acc_max / t / 10.0;
         let jerk_max = if jerk_max <= 1e-6 || jerk_max > self.motion_constraint.jerk_limit {
             self.motion_constraint.jerk_limit
         } else {
@@ -118,7 +118,7 @@ impl SCurveInterpolator {
 
         // Use symmetric settings for min value and update target data struct
         // TODO, verify the correctness of sign changing method
-        self.target_data.dist = dir * dist;
+        self.target_data.dist += dir * dist;
         self.target_data.vel_start = vel_start;
         self.target_data.vel_end = vel_end;
         self.target_data.vel_max = vel_max * (dir + 1.0) / 2.0 - vel_max * (dir - 1.0) / 2.0;
