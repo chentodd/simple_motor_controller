@@ -5,9 +5,8 @@ use core::f32;
 use embassy_stm32::timer::GeneralInstance4Channel;
 use num_traits::Float;
 
-use crate::motor::*;
 use crate::proto::motor_::{MotorRx, Operation};
-use crate::rpm_to_rad_s;
+use crate::{motor::*, rad_s_to_rpm, rpm_to_rad_s};
 
 use s_curve::*;
 
@@ -91,7 +90,7 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1
         {
             self.s_curve_intper.interpolate();
 
-            let intp_vel = rpm_to_rad_s(self.s_curve_intper.get_intp_data().vel);
+            let intp_vel = rad_s_to_rpm(self.s_curve_intper.get_intp_data().vel);
             self.motor.set_target_velocity(intp_vel);
 
             #[cfg(feature = "debug-motion")]
@@ -112,14 +111,11 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1
 
     fn set_pos_command(&mut self, command: &MotorRx) {
         let vel = rpm_to_rad_s(command.target_vel);
+        let vel_start = rpm_to_rad_s(self.motor.get_current_velocity());
         let vel_end = rpm_to_rad_s(command.target_vel_end);
 
-        self.s_curve_intper.set_target(
-            command.target_dist,
-            self.motor.get_current_velocity(),
-            vel_end,
-            vel,
-        );
+        self.s_curve_intper
+            .set_target(command.target_dist, vel_start, vel_end, vel);
 
         #[cfg(feature = "debug-motion")]
         debug!(
