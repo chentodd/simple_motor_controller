@@ -13,4 +13,5 @@ Record embedded rust learnings with nucleo f401re development board
 - [ ] Check S-curve motion interpolation, implement it on the board
 - [ ] Test IMU, read IMU settings
 - [ ] Create UI that reads controlled data and sends command to the board
+- [ ] Add a position control loop to minimize position error between actual position and interpolated position
 
