@@ -3,7 +3,6 @@ use defmt::debug;
 
 use core::f32;
 use embassy_stm32::timer::GeneralInstance4Channel;
-use num_traits::Float;
 
 use crate::proto::motor_::{MotorRx, Operation};
 use crate::{motor::*, rad_s_to_rpm, rpm_to_rad_s};
