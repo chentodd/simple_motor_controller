@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+eframe = "0.30.0"
 micropb = { version = "0.1.0", features = ["std", "alloc"] }
 serialport = "4.6.0"
 
