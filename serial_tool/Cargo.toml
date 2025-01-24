@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 eframe = "0.30.0"
 micropb = { version = "0.1.0", features = ["std", "alloc"] }
+serial_enumerator = "0.2.12"
 serialport = "4.6.0"
 
 utils = { version = "0.1.0", path = "../utils", features = ["std"] }
