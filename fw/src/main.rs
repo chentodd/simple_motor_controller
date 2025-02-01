@@ -16,7 +16,7 @@ use utils::*;
 #[cfg(any(
     feature = "debug-rx",
     feature = "debug-tx",
-    feature = "debug-pid",
+    feature = "debug-motor",
     feature = "debug-motion"
 ))]
 use defmt::debug;
@@ -121,13 +121,33 @@ async fn motion_task(
 
         left_data.operation_display = left_motion_controller.get_operation();
         left_data.command_buffer_full = left_cmd_subscriber.is_full();
-        left_data.set_actual_pos(left_motion_controller.get_actual_position());
-        left_data.set_actual_vel(left_motion_controller.get_actual_velocity());
+        left_data.set_actual_pos(
+            left_motion_controller
+                .motor
+                .encoder
+                .get_act_position_in_rad(),
+        );
+        left_data.set_actual_vel(
+            left_motion_controller
+                .motor
+                .encoder
+                .get_act_velocity_in_rpm(),
+        );
 
         right_data.operation_display = right_motion_controller.get_operation();
         right_data.command_buffer_full = right_cmd_subscriber.is_full();
-        right_data.set_actual_pos(right_motion_controller.get_actual_position());
-        right_data.set_actual_vel(right_motion_controller.get_actual_velocity());
+        right_data.set_actual_pos(
+            right_motion_controller
+                .motor
+                .encoder
+                .get_act_position_in_rad(),
+        );
+        right_data.set_actual_vel(
+            right_motion_controller
+                .motor
+                .encoder
+                .get_act_velocity_in_rpm(),
+        );
 
         tx_data.set_left_motor(left_data.clone());
         tx_data.set_right_motor(right_data.clone());
