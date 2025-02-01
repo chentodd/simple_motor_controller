@@ -5,6 +5,7 @@ use embassy_stm32::Peripheral;
 
 pub struct Encoder<'a, T: GeneralInstance4Channel, const COUNTS_PER_REV: u16> {
     qei: Qei<'a, T>,
+    act_vel: f32,
     curr_enc_count: i32,
     prev_enc_count: i32,
     prev_qei_count: i16,
@@ -21,6 +22,7 @@ impl<'a, T: GeneralInstance4Channel, const COUNTS_PER_REV: u16> Encoder<'a, T, C
         let enc_b_pin = QeiPin::new_ch2(enc_b_pin);
         Self {
             qei: Qei::new(tim, enc_a_pin, enc_b_pin),
+            act_vel: 0.0,
             curr_enc_count: 0,
             prev_enc_count: 0,
             prev_qei_count: 0,
@@ -28,18 +30,24 @@ impl<'a, T: GeneralInstance4Channel, const COUNTS_PER_REV: u16> Encoder<'a, T, C
         }
     }
 
-    pub fn get_act_velocity_in_rpm(&mut self, period_s: f32) -> f32 {
-        self.update_encoder_count();
-
-        let diff_count: f32 = (self.curr_enc_count - self.prev_enc_count) as f32;
-        let curr_velocity: f32 = diff_count / period_s / (COUNTS_PER_REV as f32);
-        self.prev_enc_count = self.curr_enc_count;
-
-        curr_velocity * 60.0
+    pub fn get_enc_count(&self) -> i32 {
+        self.curr_enc_count
     }
 
     pub fn get_act_position_in_rad(&self) -> f32 {
         (self.curr_enc_count as f32) / (COUNTS_PER_REV as f32)
+    }
+
+    pub fn get_act_velocity_in_rpm(&self) -> f32 {
+        self.act_vel
+    }
+
+    pub fn update_act_velocity_in_rpm(&mut self, period_s: f32) {
+        self.update_encoder_count();
+
+        let diff_count: f32 = (self.curr_enc_count - self.prev_enc_count) as f32;
+        self.act_vel = 60.0 * diff_count / period_s / (COUNTS_PER_REV as f32);
+        self.prev_enc_count = self.curr_enc_count;
     }
 
     fn update_encoder_count(&mut self) {
