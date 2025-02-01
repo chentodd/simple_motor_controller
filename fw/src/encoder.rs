@@ -5,7 +5,7 @@ use embassy_stm32::Peripheral;
 
 pub struct Encoder<'a, T: GeneralInstance4Channel, const COUNTS_PER_REV: u16> {
     qei: Qei<'a, T>,
-    pub curr_enc_count: i32,
+    curr_enc_count: i32,
     prev_enc_count: i32,
     prev_qei_count: i16,
     curr_qei_count: i16,
@@ -28,7 +28,7 @@ impl<'a, T: GeneralInstance4Channel, const COUNTS_PER_REV: u16> Encoder<'a, T, C
         }
     }
 
-    pub fn get_curr_velocity_in_rpm(&mut self, period_s: f32) -> f32 {
+    pub fn get_act_velocity_in_rpm(&mut self, period_s: f32) -> f32 {
         self.update_encoder_count();
 
         let diff_count: f32 = (self.curr_enc_count - self.prev_enc_count) as f32;
@@ -36,6 +36,10 @@ impl<'a, T: GeneralInstance4Channel, const COUNTS_PER_REV: u16> Encoder<'a, T, C
         self.prev_enc_count = self.curr_enc_count;
 
         curr_velocity * 60.0
+    }
+
+    pub fn get_enc_count(&self) -> i32 {
+        self.curr_enc_count
     }
 
     fn update_encoder_count(&mut self) {
