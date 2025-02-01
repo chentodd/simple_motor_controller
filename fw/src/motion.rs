@@ -1,7 +1,6 @@
 #[cfg(feature = "debug-motion")]
 use defmt::debug;
 
-use core::f32;
 use embassy_stm32::timer::GeneralInstance4Channel;
 
 use crate::proto::motor_::{MotorRx, Operation};
@@ -10,18 +9,16 @@ use crate::{motor::*, rad_s_to_rpm, rpm_to_rad_s};
 use s_curve::*;
 
 pub struct Motion<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> {
+    pub motor: BldcMotor24H<'a, T1, T2>,
     s_curve_intper: SCurveInterpolator,
-    motor: BldcMotor24H<'a, T1, T2>,
-    actual_position: f32,
     operation: Operation,
 }
 
 impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1, T2> {
     pub fn new(s_curve_intper: SCurveInterpolator, motor: BldcMotor24H<'a, T1, T2>) -> Self {
         Self {
-            s_curve_intper,
             motor,
-            actual_position: 0.0,
+            s_curve_intper,
             operation: Operation::default(),
         }
     }
@@ -41,7 +38,7 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1
                 #[cfg(feature = "debug-motion")]
                 debug!("ready, vel, {}", self.motor.get_error());
 
-                return self.motor.get_error().abs() <= 60.0;
+                return self.motor.pid.get_error().abs() <= 60.0;
             }
             _ => (),
         }
@@ -51,14 +48,6 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1
 
     pub fn get_operation(&self) -> Operation {
         self.operation
-    }
-
-    pub fn get_actual_position(&self) -> f32 {
-        self.actual_position
-    }
-
-    pub fn get_actual_velocity(&mut self) -> f32 {
-        self.motor.get_current_velocity()
     }
 
     pub fn set_command(&mut self, command: MotorRx) {
@@ -102,15 +91,11 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1
         // If current operation != `IntPos`, the target velocity will be set by `set_command` function
         // Note: only `IntpVel` is handled, and the other operation modes are currently listed as `todo!()`
         self.motor.run_pid_velocity_control();
-
-        // Integrate velocity to get actual position
-        let vel_rad_s: f32 = rpm_to_rad_s(self.motor.get_current_velocity());
-        self.actual_position += vel_rad_s * self.motor.get_period_s();
     }
 
     fn set_pos_command(&mut self, command: &MotorRx) {
         let vel = rpm_to_rad_s(command.target_vel);
-        let vel_start = rpm_to_rad_s(self.motor.get_current_velocity());
+        let vel_start = rpm_to_rad_s(self.motor.encoder.get_act_velocity_in_rpm());
         let vel_end = rpm_to_rad_s(command.target_vel_end);
 
         self.s_curve_intper
