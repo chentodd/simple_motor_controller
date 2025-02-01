@@ -35,5 +35,5 @@ micropb-gen = "0.1.0"
 default = []
 debug-rx = []
 debug-tx = []
-debug-pid = []
+debug-motor = []
 debug-motion = []
