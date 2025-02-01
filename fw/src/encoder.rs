@@ -38,8 +38,8 @@ impl<'a, T: GeneralInstance4Channel, const COUNTS_PER_REV: u16> Encoder<'a, T, C
         curr_velocity * 60.0
     }
 
-    pub fn get_enc_count(&self) -> i32 {
-        self.curr_enc_count
+    pub fn get_act_position_in_rad(&self) -> f32 {
+        (self.curr_enc_count as f32) / (COUNTS_PER_REV as f32)
     }
 
     fn update_encoder_count(&mut self) {
