@@ -1,4 +1,4 @@
-#[cfg(feature = "debug-pid")]
+#[cfg(feature = "debug-motor")]
 use defmt::debug;
 
 use embassy_stm32::gpio::Output;
@@ -10,13 +10,12 @@ use crate::encoder::Encoder;
 use crate::pid::Pid;
 
 pub struct BldcMotor24H<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> {
-    encoder: Encoder<'a, T1, 400>,
+    pub encoder: Encoder<'a, T1, 400>,
+    pub pid: Pid,
     pwm_channel: SimplePwmChannel<'a, T2>,
     dir_pin: Output<'a>,
     _break_pin: Output<'a>,
-    pid: Pid,
     period_s: f32,
-    curr_vel: f32,
 }
 
 impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> BldcMotor24H<'a, T1, T2> {
@@ -34,12 +33,11 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> BldcMotor24H<
 
         Self {
             encoder,
+            pid,
             pwm_channel,
             dir_pin,
             _break_pin: break_pin,
-            pid,
             period_s,
-            curr_vel: 0.0,
         }
     }
 
@@ -47,25 +45,23 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> BldcMotor24H<
         self.pid.set_target_velocity(target_velocity_rpm);
     }
 
-    pub fn get_current_velocity(&self) -> f32 {
-        self.curr_vel
-    }
-
-    pub fn get_error(&self) -> f32 {
-        self.pid.get_error()
-    }
-
     pub fn get_period_s(&self) -> f32 {
         self.period_s
     }
 
     pub fn run_pid_velocity_control(&mut self) {
-        self.curr_vel = self.encoder.get_curr_velocity_in_rpm(self.period_s);
+        self.encoder.update_act_velocity_in_rpm(self.period_s);
 
-        #[cfg(feature = "debug-pid")]
-        debug!("{}, {}", self.curr_vel, self.encoder.curr_enc_count);
+        #[cfg(feature = "debug-motor")]
+        debug!(
+            "{}, {}",
+            self.encoder.get_act_velocity_in_rpm(),
+            self.encoder.get_enc_count()
+        );
 
-        let control_effort: f32 = self.pid.run(self.curr_vel, self.period_s);
+        let control_effort: f32 = self
+            .pid
+            .run(self.encoder.get_act_velocity_in_rpm(), self.period_s);
         let dir = if control_effort >= 0.0 { 1.0 } else { -1.0 };
 
         let duty_cycle_percent: u8 = (control_effort * dir * 100.0) as u8;
