@@ -31,9 +31,9 @@ impl Pid {
         self.curr_error
     }
 
-    pub(crate) fn run(&mut self, curr_velocity_prm: f32, period_s: f32) -> f32 {
+    pub(crate) fn run(&mut self, act_velocity_prm: f32, period_s: f32) -> f32 {
         self.prev_error = self.curr_error;
-        self.curr_error = self.target_velocity_rpm - curr_velocity_prm;
+        self.curr_error = self.target_velocity_rpm - act_velocity_prm;
         self.accumulated_error += self.curr_error * period_s;
 
         let mut control_effort = self.kp * self.curr_error
