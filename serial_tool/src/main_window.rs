@@ -1,7 +1,8 @@
 use std::fmt::Display;
 
 use eframe::{
-    egui::{self, Button, Vec2}, App, CreationContext
+    egui::{self, Button, ScrollArea, Slider, TextEdit, Vec2},
+    App, CreationContext,
 };
 use egui::{ComboBox, Ui};
 
@@ -20,6 +21,8 @@ struct ConnectionSettings {
 pub struct MainWindow {
     conn_settings: ConnectionSettings,
     selected_mode: Operation,
+    velocity_command: [f32; 2],
+    position_command: String,
 }
 
 impl Display for Operation {
@@ -47,6 +50,12 @@ impl App for MainWindow {
                     self.display_mode_panel(ui);
                 });
             });
+        });
+
+        egui::TopBottomPanel::top("command_panel").show(ctx, |ui| {
+            ui.heading("Command setup");
+            self.display_velocity_command_panel(ui);
+            self.display_position_command_panel(ui);
         });
     }
 }
@@ -82,10 +91,15 @@ impl MainWindow {
 
             let text_in_button = if *button_clicked { "Stop" } else { "Start" };
             let conn_button = Button::new(text_in_button);
-            if ui.add_enabled(!selected_port.is_empty(), conn_button).clicked() {
+            if ui
+                .add_enabled(!selected_port.is_empty(), conn_button)
+                .clicked()
+            {
                 *button_clicked = !*button_clicked;
             }
         });
+
+        // TODO, connect to serial port when `button_clicked` is true
     }
 
     fn display_mode_panel(&mut self, ui: &mut Ui) {
@@ -102,5 +116,41 @@ impl MainWindow {
             });
 
         self.selected_mode = *curr_selected;
+    }
+
+    fn display_velocity_command_panel(&mut self, ui: &mut Ui) {
+        if self.selected_mode != Operation::IntpVel {
+            return;
+        }
+
+        ui.add(
+            Slider::new(&mut self.velocity_command[0], 0.0..=100.0)
+                .text("left motor velocity ratio"),
+        );
+
+        ui.add(
+            Slider::new(&mut self.velocity_command[1], 0.0..=100.0)
+                .text("right motor velocity ratio"),
+        );
+    }
+
+    fn display_position_command_panel(&mut self, ui: &mut Ui) {
+        if self.selected_mode != Operation::IntpPos {
+            return;
+        }
+
+        ScrollArea::vertical().max_height(64.0).show(ui, |ui| {
+            ui.add_sized(
+                ui.available_size(),
+                TextEdit::multiline(&mut self.position_command));
+        });
+
+        let send_button = Button::new("Send");
+        if ui
+            .add_enabled(!self.position_command.is_empty(), send_button)
+            .clicked()
+        {
+            // TODO, send position commands
+        }
     }
 }
