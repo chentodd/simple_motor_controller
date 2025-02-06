@@ -1,10 +1,9 @@
 use std::fmt::Display;
 
 use eframe::{
-    egui::{self, Button, ScrollArea, Slider, TextEdit, Vec2},
+    egui::{self, Button, ComboBox, ScrollArea, Slider, TextEdit, Ui, Vec2},
     App, CreationContext,
 };
-use egui::{ComboBox, Ui};
 
 use serial_enumerator::{get_serial_list, SerialInfo};
 
@@ -21,7 +20,7 @@ struct ConnectionSettings {
 pub struct MainWindow {
     conn_settings: ConnectionSettings,
     selected_mode: Operation,
-    velocity_command: [f32; 2],
+    velocity_command: f32,
     position_command: String,
 }
 
@@ -52,7 +51,7 @@ impl App for MainWindow {
             });
         });
 
-        egui::TopBottomPanel::top("command_panel").show(ctx, |ui| {
+        egui::TopBottomPanel::top("command_panel").show(ctx, |ui: &mut Ui| {
             ui.heading("Command setup");
             self.display_velocity_command_panel(ui);
             self.display_position_command_panel(ui);
@@ -124,13 +123,8 @@ impl MainWindow {
         }
 
         ui.add(
-            Slider::new(&mut self.velocity_command[0], 0.0..=100.0)
-                .text("left motor velocity ratio"),
-        );
-
-        ui.add(
-            Slider::new(&mut self.velocity_command[1], 0.0..=100.0)
-                .text("right motor velocity ratio"),
+            Slider::new(&mut self.velocity_command, 0.0..=100.0)
+                .text("motor velocity ratio"),
         );
     }
 
@@ -142,7 +136,8 @@ impl MainWindow {
         ScrollArea::vertical().max_height(64.0).show(ui, |ui| {
             ui.add_sized(
                 ui.available_size(),
-                TextEdit::multiline(&mut self.position_command));
+                TextEdit::multiline(&mut self.position_command),
+            );
         });
 
         let send_button = Button::new("Send");
