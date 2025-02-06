@@ -81,6 +81,7 @@ impl MainWindow {
                 serial_ports: get_serial_list(),
                 ..Default::default()
             },
+            selected_mode: Operation::IntpVel,
             ..Default::default()
         }
     }
@@ -124,7 +125,6 @@ impl MainWindow {
         ComboBox::new("control_mods", "control modes")
             .selected_text(format!("{}", curr_selected))
             .show_ui(ui, |ui| {
-                ui.selectable_value(curr_selected, Operation::Unspecified, "Unspecified");
                 ui.selectable_value(curr_selected, Operation::IntpPos, "IntpPos");
                 ui.selectable_value(curr_selected, Operation::IntpVel, "IntpVel");
             });
@@ -137,6 +137,9 @@ impl MainWindow {
             return;
         }
 
+        if !self.conn_settings.button_clicked {
+            ui.disable();
+        }
         ui.add(Slider::new(&mut self.velocity_command, 0.0..=100.0).text("motor velocity ratio"));
     }
 
@@ -165,7 +168,7 @@ impl MainWindow {
         if !self.conn_settings.button_clicked {
             ui.disable();
         }
-        
+
         ui.checkbox(&mut self.profile_data_selection.intp_pos, "Intp pos");
         ui.checkbox(&mut self.profile_data_selection.intp_vel, "Intp vel");
         ui.checkbox(&mut self.profile_data_selection.intp_acc, "Intp acc");
