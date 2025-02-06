@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{collections::VecDeque, fmt::Display};
 
 use eframe::{
     egui::{self, Button, ComboBox, ScrollArea, Slider, TextEdit, Ui, Vec2},
@@ -16,23 +16,45 @@ struct ConnectionSettings {
     button_clicked: bool,
 }
 
+impl ConnectionSettings {
+    fn new() -> Self {
+        Self {
+            serial_ports: get_serial_list(),
+            ..Default::default()
+        }
+    }
+}
+
 #[derive(Default)]
-struct ProfileDataSelection {
-    intp_pos: bool,
-    intp_vel: bool,
-    intp_acc: bool,
-    intp_jerk: bool,
-    act_pos: bool,
-    act_vel: bool,
+struct ProfileDataSettings {
+    data: [(String, bool, VecDeque<PlotPoint>); 6],
+    look_behind: usize,
+}
+
+impl ProfileDataSettings {
+    fn new(look_behind: usize) -> Self {
+        Self {
+            data: [
+                ("Intp pos".to_string(), false, VecDeque::new()),
+                ("Intp vel".to_string(), false, VecDeque::new()),
+                ("Intp acc".to_string(), false, VecDeque::new()),
+                ("Intp jerk".to_string(), false, VecDeque::new()),
+                ("Act pos".to_string(), false, VecDeque::new()),
+                ("Act jerk".to_string(), false, VecDeque::new()),
+            ],
+            look_behind
+        }
+    }
 }
 
 #[derive(Default)]
 pub struct MainWindow {
     conn_settings: ConnectionSettings,
+profile_data_settings: ProfileDataSettings,
     selected_mode: Operation,
     velocity_command: f32,
     position_command: String,
-    profile_data_selection: ProfileDataSelection,
+    
 }
 
 impl Display for Operation {
@@ -75,12 +97,10 @@ impl App for MainWindow {
 }
 
 impl MainWindow {
-    pub fn new(_cc: &CreationContext<'_>) -> Self {
+    pub fn new(_cc: &CreationContext<'_>, look_behind: usize) -> Self {
         Self {
-            conn_settings: ConnectionSettings {
-                serial_ports: get_serial_list(),
-                ..Default::default()
-            },
+            conn_settings: ConnectionSettings::new(),
+            profile_data_settings: ProfileDataSettings::new(look_behind),
             selected_mode: Operation::IntpVel,
             ..Default::default()
         }
@@ -173,11 +193,12 @@ impl MainWindow {
             ui.disable();
         }
 
-        ui.checkbox(&mut self.profile_data_selection.intp_pos, "Intp pos");
-        ui.checkbox(&mut self.profile_data_selection.intp_vel, "Intp vel");
-        ui.checkbox(&mut self.profile_data_selection.intp_acc, "Intp acc");
-        ui.checkbox(&mut self.profile_data_selection.intp_jerk, "Intp jerk");
-        ui.checkbox(&mut self.profile_data_selection.act_pos, "Actual pos");
-        ui.checkbox(&mut self.profile_data_selection.act_vel, "Actual vel");
+        for item in self.profile_data_settings.data.iter_mut() {
+            ui.checkbox(&mut item.1, item.0.as_str());
+        }
+    }
+
+    fn display_profile_data_graph(&mut self, ui: &mut Ui) {
+
     }
 }

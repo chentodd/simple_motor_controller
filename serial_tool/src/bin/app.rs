@@ -5,6 +5,6 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "MyApp",
         native_options,
-        Box::new(|cc| Ok(Box::new(MainWindow::new(cc)))),
+        Box::new(|cc| Ok(Box::new(MainWindow::new(cc, 4000)))),
     )
 }
