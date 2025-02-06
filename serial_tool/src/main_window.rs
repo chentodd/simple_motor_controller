@@ -148,6 +148,10 @@ impl MainWindow {
             return;
         }
 
+        if !self.conn_settings.button_clicked {
+            ui.disable();
+        }
+
         ScrollArea::vertical().max_height(64.0).show(ui, |ui| {
             ui.add_sized(
                 ui.available_size(),
