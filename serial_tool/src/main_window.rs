@@ -17,11 +17,22 @@ struct ConnectionSettings {
 }
 
 #[derive(Default)]
+struct ProfileDataSelection {
+    intp_pos: bool,
+    intp_vel: bool,
+    intp_acc: bool,
+    intp_jerk: bool,
+    act_pos: bool,
+    act_vel: bool,
+}
+
+#[derive(Default)]
 pub struct MainWindow {
     conn_settings: ConnectionSettings,
     selected_mode: Operation,
     velocity_command: f32,
     position_command: String,
+    profile_data_selection: ProfileDataSelection,
 }
 
 impl Display for Operation {
@@ -55,6 +66,10 @@ impl App for MainWindow {
             ui.heading("Command setup");
             self.display_velocity_command_panel(ui);
             self.display_position_command_panel(ui);
+        });
+
+        egui::SidePanel::right("profile_data_selection_panel").show(ctx, |ui| {
+            self.display_profile_data_selection_panel(ui);
         });
     }
 }
@@ -122,10 +137,7 @@ impl MainWindow {
             return;
         }
 
-        ui.add(
-            Slider::new(&mut self.velocity_command, 0.0..=100.0)
-                .text("motor velocity ratio"),
-        );
+        ui.add(Slider::new(&mut self.velocity_command, 0.0..=100.0).text("motor velocity ratio"));
     }
 
     fn display_position_command_panel(&mut self, ui: &mut Ui) {
@@ -147,5 +159,18 @@ impl MainWindow {
         {
             // TODO, send position commands
         }
+    }
+
+    fn display_profile_data_selection_panel(&mut self, ui: &mut Ui) {
+        if !self.conn_settings.button_clicked {
+            ui.disable();
+        }
+        
+        ui.checkbox(&mut self.profile_data_selection.intp_pos, "Intp pos");
+        ui.checkbox(&mut self.profile_data_selection.intp_vel, "Intp vel");
+        ui.checkbox(&mut self.profile_data_selection.intp_acc, "Intp acc");
+        ui.checkbox(&mut self.profile_data_selection.intp_jerk, "Intp jerk");
+        ui.checkbox(&mut self.profile_data_selection.act_pos, "Actual pos");
+        ui.checkbox(&mut self.profile_data_selection.act_vel, "Actual vel");
     }
 }
