@@ -1,5 +1,6 @@
 pub mod connection_config;
 pub mod main_window;
+pub mod profile_measurement;
 
 pub mod proto {
     #![allow(clippy::all)]

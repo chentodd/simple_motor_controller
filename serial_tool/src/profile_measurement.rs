@@ -1,0 +1,96 @@
+use egui_plot::PlotPoints;
+use std::collections::VecDeque;
+use std::fmt::Display;
+use std::sync::mpsc::Receiver;
+
+#[derive(Default)]
+pub struct ProfileData {
+    intp_pos: f32,
+    intp_vel: f32,
+    intp_acc: f32,
+    intp_jerk: f32,
+    act_pos: f32,
+    act_vel: f32,
+}
+
+impl ProfileData {
+    pub fn new(
+        intp_pos: f32,
+        intp_vel: f32,
+        intp_acc: f32,
+        intp_jerk: f32,
+        act_pos: f32,
+        act_vel: f32,
+    ) -> Self {
+        Self {
+            intp_pos,
+            intp_vel,
+            intp_acc,
+            intp_jerk,
+            act_pos,
+            act_vel,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum ProfileDataType {
+    IntpPos,
+    IntpVel,
+    IntpAcc,
+    IntpJerk,
+    ActPos,
+    ActVel,
+}
+
+impl Display for ProfileDataType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProfileDataType::IntpPos => write!(f, "intp_pos"),
+            ProfileDataType::IntpVel => write!(f, "intp_pos"),
+            ProfileDataType::IntpAcc => write!(f, "intp_pos"),
+            ProfileDataType::IntpJerk => write!(f, "intp_pos"),
+            ProfileDataType::ActPos => write!(f, "intp_pos"),
+            ProfileDataType::ActVel => write!(f, "intp_pos"),
+        }
+    }
+}
+
+pub struct MeasurementWindow {
+    receiver: Receiver<ProfileData>,
+    window_values: VecDeque<ProfileData>,
+    window_size: usize,
+}
+
+impl MeasurementWindow {
+    pub fn new(window_size: usize, receiver: Receiver<ProfileData>) -> Self {
+        Self {
+            receiver,
+            window_values: VecDeque::new(),
+            window_size,
+        }
+    }
+
+    pub fn update_measurement_window(&mut self) {
+        if let Ok(profile_data) = self.receiver.try_recv() {
+            if self.window_values.len() == self.window_size {
+                self.window_values.pop_front();
+            }
+            self.window_values.push_back(profile_data);
+        }
+    }
+
+    pub fn get_data(&self, get_data_type: ProfileDataType) -> PlotPoints {
+        let iter = self.window_values.iter().enumerate();
+        match get_data_type {
+            ProfileDataType::IntpPos => iter.map(|(x, y)| [x as f64, y.intp_pos as f64]).collect(),
+            ProfileDataType::IntpVel => iter.map(|(x, y)| [x as f64, y.intp_vel as f64]).collect(),
+            ProfileDataType::IntpAcc => iter.map(|(x, y)| [x as f64, y.intp_acc as f64]).collect(),
+            ProfileDataType::IntpJerk => {
+                iter.map(|(x, y)| [x as f64, y.intp_jerk as f64]).collect()
+            }
+            ProfileDataType::ActPos => iter.map(|(x, y)| [x as f64, y.act_pos as f64]).collect(),
+            ProfileDataType::ActVel => iter.map(|(x, y)| [x as f64, y.act_vel as f64]).collect(),
+        }
+    }
+}

@@ -1,45 +1,25 @@
-use std::{collections::VecDeque, fmt::Display};
+use std::fmt::Display;
+use std::sync::mpsc::Receiver;
 
 use eframe::{
     egui::{self, Button, ComboBox, ScrollArea, Slider, TextEdit, Ui, Vec2},
     App, CreationContext,
 };
-use egui_plot::{Legend, Line, Plot, PlotPoint, PlotPoints};
+use egui_plot::{Legend, Line, Plot};
 
 use crate::connection_config::ConnectionSettings;
+use crate::profile_measurement::{MeasurementWindow, ProfileData, ProfileDataType};
 use crate::proto::motor_::Operation;
 
-#[derive(Default)]
-struct ProfileDataSettings {
-    data: [(String, bool, VecDeque<PlotPoint>); 6],
-    look_behind: usize,
-}
-
-impl ProfileDataSettings {
-    fn new(look_behind: usize) -> Self {
-        Self {
-            data: [
-                ("Intp pos".to_string(), false, VecDeque::new()),
-                ("Intp vel".to_string(), false, VecDeque::new()),
-                ("Intp acc".to_string(), false, VecDeque::new()),
-                ("Intp jerk".to_string(), false, VecDeque::new()),
-                ("Act pos".to_string(), false, VecDeque::new()),
-                ("Act jerk".to_string(), false, VecDeque::new()),
-            ],
-            look_behind,
-        }
-    }
-}
-
-#[derive(Default)]
 pub struct MainWindow {
     conn_settings: ConnectionSettings,
-    profile_data_settings: ProfileDataSettings,
+    measurement_window: MeasurementWindow,
     selected_mode: Operation,
     selected_port: String,
     conn_button_clicked: bool,
     velocity_command: f32,
     position_command: String,
+    profile_data_flags: [(ProfileDataType, bool); 6],
 }
 
 impl Display for Operation {
@@ -86,12 +66,27 @@ impl App for MainWindow {
 }
 
 impl MainWindow {
-    pub fn new(_cc: &CreationContext<'_>, look_behind: usize) -> Self {
+    pub fn new(
+        _cc: &CreationContext<'_>,
+        window_size: usize,
+        data_receiver: Receiver<ProfileData>,
+    ) -> Self {
         Self {
             conn_settings: ConnectionSettings::new(),
-            profile_data_settings: ProfileDataSettings::new(look_behind),
+            measurement_window: MeasurementWindow::new(window_size, data_receiver),
             selected_mode: Operation::IntpVel,
-            ..Default::default()
+            selected_port: "".to_string(),
+            conn_button_clicked: false,
+            velocity_command: 0.0,
+            position_command: "".to_string(),
+            profile_data_flags: [
+                (ProfileDataType::IntpPos, false),
+                (ProfileDataType::IntpPos, false),
+                (ProfileDataType::IntpPos, false),
+                (ProfileDataType::IntpPos, false),
+                (ProfileDataType::IntpPos, false),
+                (ProfileDataType::IntpPos, false),
+            ],
         }
     }
 
@@ -183,10 +178,23 @@ impl MainWindow {
             ui.disable();
         }
 
-        for item in self.profile_data_settings.data.iter_mut() {
-            ui.checkbox(&mut item.1, item.0.as_str());
+        for item in self.profile_data_flags.iter_mut() {
+            ui.checkbox(&mut item.1, item.0.to_string());
         }
     }
 
-    fn display_profile_data_graph(&mut self, ui: &mut Ui) {}
+    fn display_profile_data_graph(&mut self, ui: &mut Ui) {
+        Plot::new("profile_data")
+            .legend(Legend::default())
+            .show(ui, |plot_ui| {
+                for (data_type, enable) in self.profile_data_flags.iter() {
+                    if *enable {
+                        let data_points = self.measurement_window.get_data(*data_type);
+                        plot_ui.line(Line::new(data_points).name(data_type.to_string()));
+                    }
+                }
+            });
+
+        self.measurement_window.update_measurement_window();
+    }
 }
