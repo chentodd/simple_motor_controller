@@ -10,7 +10,7 @@ use s_curve::*;
 
 pub struct Motion<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> {
     pub motor: BldcMotor24H<'a, T1, T2>,
-    s_curve_intper: SCurveInterpolator,
+    pub s_curve_intper: SCurveInterpolator,
     operation: Operation,
 }
 
