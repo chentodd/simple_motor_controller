@@ -2,12 +2,13 @@
 #![no_main]
 
 use core::f32;
+use embassy_stm32::timer::GeneralInstance4Channel;
 use fw::encoder::Encoder;
 use fw::motion::Motion;
 use fw::motor::BldcMotor24H;
 use fw::pid::Pid;
 use fw::proto::command_::*;
-use fw::proto::motor_::{MotorRx, MotorTx};
+use fw::proto::motor_::{MotorRx, MotorTx, Operation};
 use fw::rpm_to_rad_s;
 
 use s_curve::*;
@@ -73,6 +74,27 @@ bind_interrupts!(struct Irqs {
     USART6 => usart::InterruptHandler<peripherals::USART6>;
 });
 
+fn set_motion_data_helper<T1: GeneralInstance4Channel, T2: GeneralInstance4Channel>(
+    target: &mut MotorTx,
+    source: &Motion<'_, T1, T2>,
+) {
+    target.clear_intp_pos();
+    target.clear_intp_vel();
+    target.clear_intp_acc();
+    target.clear_intp_jerk();
+
+    target.operation_display = source.get_operation();
+    if source.get_operation() == Operation::IntpPos {
+        let intp_data = source.s_curve_intper.get_intp_data();
+        target.set_intp_pos(intp_data.pos);
+        target.set_intp_vel(intp_data.vel);
+        target.set_intp_acc(intp_data.acc);
+        target.set_intp_jerk(intp_data.jerk);
+    }
+    target.set_actual_pos(source.motor.encoder.get_act_position_in_rad());
+    target.set_actual_vel(source.motor.encoder.get_act_velocity_in_rpm());
+}
+
 #[embassy_executor::task]
 async fn motion_task(
     mut left_motion_controller: Motion<'static, TIM2, TIM3>,
@@ -119,35 +141,10 @@ async fn motion_task(
         left_motion_controller.run();
         right_motion_controller.run();
 
-        left_data.operation_display = left_motion_controller.get_operation();
         left_data.command_buffer_full = left_cmd_subscriber.is_full();
-        left_data.set_actual_pos(
-            left_motion_controller
-                .motor
-                .encoder
-                .get_act_position_in_rad(),
-        );
-        left_data.set_actual_vel(
-            left_motion_controller
-                .motor
-                .encoder
-                .get_act_velocity_in_rpm(),
-        );
-
-        right_data.operation_display = right_motion_controller.get_operation();
         right_data.command_buffer_full = right_cmd_subscriber.is_full();
-        right_data.set_actual_pos(
-            right_motion_controller
-                .motor
-                .encoder
-                .get_act_position_in_rad(),
-        );
-        right_data.set_actual_vel(
-            right_motion_controller
-                .motor
-                .encoder
-                .get_act_velocity_in_rpm(),
-        );
+        set_motion_data_helper(&mut left_data, &left_motion_controller);
+        set_motion_data_helper(&mut right_data, &right_motion_controller);
 
         tx_data.set_left_motor(left_data.clone());
         tx_data.set_right_motor(right_data.clone());
