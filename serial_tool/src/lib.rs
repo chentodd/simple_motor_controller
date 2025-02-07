@@ -1,3 +1,4 @@
+pub mod connection_config;
 pub mod main_window;
 
 pub mod proto {

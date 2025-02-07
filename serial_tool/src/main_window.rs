@@ -4,26 +4,10 @@ use eframe::{
     egui::{self, Button, ComboBox, ScrollArea, Slider, TextEdit, Ui, Vec2},
     App, CreationContext,
 };
+use egui_plot::{Legend, Line, Plot, PlotPoint, PlotPoints};
 
-use serial_enumerator::{get_serial_list, SerialInfo};
-
+use crate::connection_config::ConnectionSettings;
 use crate::proto::motor_::Operation;
-
-#[derive(Default)]
-struct ConnectionSettings {
-    serial_ports: Vec<SerialInfo>,
-    selected_port: String,
-    button_clicked: bool,
-}
-
-impl ConnectionSettings {
-    fn new() -> Self {
-        Self {
-            serial_ports: get_serial_list(),
-            ..Default::default()
-        }
-    }
-}
 
 #[derive(Default)]
 struct ProfileDataSettings {
@@ -42,7 +26,7 @@ impl ProfileDataSettings {
                 ("Act pos".to_string(), false, VecDeque::new()),
                 ("Act jerk".to_string(), false, VecDeque::new()),
             ],
-            look_behind
+            look_behind,
         }
     }
 }
@@ -50,11 +34,12 @@ impl ProfileDataSettings {
 #[derive(Default)]
 pub struct MainWindow {
     conn_settings: ConnectionSettings,
-profile_data_settings: ProfileDataSettings,
+    profile_data_settings: ProfileDataSettings,
     selected_mode: Operation,
+    selected_port: String,
+    conn_button_clicked: bool,
     velocity_command: f32,
     position_command: String,
-    
 }
 
 impl Display for Operation {
@@ -93,6 +78,10 @@ impl App for MainWindow {
         egui::SidePanel::right("profile_data_selection_panel").show(ctx, |ui| {
             self.display_profile_data_selection_panel(ui);
         });
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            self.display_profile_data_graph(ui);
+        });
     }
 }
 
@@ -107,30 +96,31 @@ impl MainWindow {
     }
 
     fn display_connection_panel(&mut self, ui: &mut Ui) {
-        let ConnectionSettings {
-            serial_ports,
-            selected_port,
-            button_clicked,
-        } = &mut self.conn_settings;
+        let port_names = self.conn_settings.get_port_names();
 
         ui.horizontal_centered(|ui| {
-            let curr_selected = &mut selected_port.as_str();
+            let curr_selected = &mut self.selected_port.as_str();
             ComboBox::new("ports", "ports")
                 .selected_text(*curr_selected)
                 .show_ui(ui, |ui| {
-                    for port in serial_ports.iter() {
-                        ui.selectable_value(curr_selected, &port.name, &port.name);
+                    for port in port_names {
+                        ui.selectable_value(curr_selected, port, port);
                     }
                 });
-            *selected_port = curr_selected.to_owned();
+            self.selected_port = curr_selected.to_owned();
 
-            let text_in_button = if *button_clicked { "Stop" } else { "Start" };
+            let text_in_button = if self.conn_button_clicked {
+                "Stop"
+            } else {
+                "Start"
+            };
+
             let conn_button = Button::new(text_in_button);
             if ui
-                .add_enabled(!selected_port.is_empty(), conn_button)
+                .add_enabled(!self.selected_port.is_empty(), conn_button)
                 .clicked()
             {
-                *button_clicked = !*button_clicked;
+                self.conn_button_clicked = !self.conn_button_clicked;
             }
         });
 
@@ -138,7 +128,7 @@ impl MainWindow {
     }
 
     fn display_mode_panel(&mut self, ui: &mut Ui) {
-        if !self.conn_settings.button_clicked {
+        if !self.conn_button_clicked {
             ui.disable();
         }
         let curr_selected = &mut self.selected_mode;
@@ -157,7 +147,7 @@ impl MainWindow {
             return;
         }
 
-        if !self.conn_settings.button_clicked {
+        if !self.conn_button_clicked {
             ui.disable();
         }
         ui.add(Slider::new(&mut self.velocity_command, 0.0..=100.0).text("motor velocity ratio"));
@@ -168,7 +158,7 @@ impl MainWindow {
             return;
         }
 
-        if !self.conn_settings.button_clicked {
+        if !self.conn_button_clicked {
             ui.disable();
         }
 
@@ -189,7 +179,7 @@ impl MainWindow {
     }
 
     fn display_profile_data_selection_panel(&mut self, ui: &mut Ui) {
-        if !self.conn_settings.button_clicked {
+        if !self.conn_button_clicked {
             ui.disable();
         }
 
@@ -198,7 +188,5 @@ impl MainWindow {
         }
     }
 
-    fn display_profile_data_graph(&mut self, ui: &mut Ui) {
-
-    }
+    fn display_profile_data_graph(&mut self, ui: &mut Ui) {}
 }
