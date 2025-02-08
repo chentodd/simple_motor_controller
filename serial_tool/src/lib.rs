@@ -1,4 +1,4 @@
-pub mod connection_config;
+pub mod communication;
 pub mod main_window;
 pub mod profile_measurement;
 

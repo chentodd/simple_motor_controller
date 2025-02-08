@@ -7,7 +7,7 @@ use eframe::{
 };
 use egui_plot::{Legend, Line, Plot};
 
-use crate::connection_config::ConnectionSettings;
+use crate::communication::ConnectionSettings;
 use crate::profile_measurement::{MeasurementWindow, ProfileData, ProfileDataType};
 use crate::proto::motor_::Operation;
 
