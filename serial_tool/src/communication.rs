@@ -1,19 +1,11 @@
-use serial_enumerator::{get_serial_list, SerialInfo};
+use serial_enumerator::get_serial_list;
 
 #[derive(Default)]
-pub struct ConnectionSettings {
-    serial_ports: Vec<SerialInfo>,
-}
+pub struct Settings;
 
-impl ConnectionSettings {
-    pub fn new() -> Self {
-        Self {
-            serial_ports: get_serial_list(),
-            ..Default::default()
-        }
-    }
-
-    pub fn get_port_names(&self) -> Vec<&str> {
-        self.serial_ports.iter().map(|x| x.name.as_str()).collect()
+impl Settings {
+    pub fn get_port_names() -> Vec<String> {
+        let port_info = get_serial_list();
+        port_info.iter().map(|x| x.name.clone()).collect()
     }
 }

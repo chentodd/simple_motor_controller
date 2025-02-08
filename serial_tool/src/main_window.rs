@@ -7,12 +7,11 @@ use eframe::{
 };
 use egui_plot::{Legend, Line, Plot};
 
-use crate::communication::ConnectionSettings;
+use crate::communication::Settings;
 use crate::profile_measurement::{MeasurementWindow, ProfileData, ProfileDataType};
 use crate::proto::motor_::Operation;
 
 pub struct MainWindow {
-    conn_settings: ConnectionSettings,
     measurement_window: MeasurementWindow,
     selected_mode: Operation,
     selected_port: String,
@@ -72,7 +71,6 @@ impl MainWindow {
         data_receiver: Receiver<ProfileData>,
     ) -> Self {
         Self {
-            conn_settings: ConnectionSettings::new(),
             measurement_window: MeasurementWindow::new(window_size, data_receiver),
             selected_mode: Operation::IntpVel,
             selected_port: "".to_string(),
@@ -91,14 +89,14 @@ impl MainWindow {
     }
 
     fn display_connection_panel(&mut self, ui: &mut Ui) {
-        let port_names = self.conn_settings.get_port_names();
+        let port_names = Settings::get_port_names();
 
         ui.horizontal_centered(|ui| {
             let curr_selected = &mut self.selected_port.as_str();
             ComboBox::new("ports", "ports")
                 .selected_text(*curr_selected)
                 .show_ui(ui, |ui| {
-                    for port in port_names {
+                    for port in &port_names {
                         ui.selectable_value(curr_selected, port, port);
                     }
                 });
