@@ -1,6 +1,5 @@
 use serial_enumerator::get_serial_list;
 
-#[derive(Default)]
 pub struct Settings;
 
 impl Settings {
