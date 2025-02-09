@@ -1,7 +1,6 @@
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
-use std::time::Duration;
 
 use micropb::{MessageEncode, PbEncoder};
 use serial_enumerator::get_serial_list;
@@ -70,7 +69,7 @@ impl Communication {
         let mut packet_encoder = PacketEncoder::new(packet_buffer);
 
         loop {
-            if let Ok(rx_data) = receiver.try_recv() {
+            if let Ok(rx_data) = receiver.recv() {
                 let stream = Vec::<u8>::new();
                 let mut pb_encoder = PbEncoder::new(stream);
 
@@ -82,8 +81,6 @@ impl Communication {
                     .write_all(output_packet)
                     .expect("Failed to write to serial port");
             }
-
-            thread::sleep(Duration::from_millis(50));
         }
     }
 
@@ -109,7 +106,6 @@ impl Communication {
             }
 
             serial_port.clear(serialport::ClearBuffer::Input).unwrap();
-            thread::sleep(Duration::from_millis(200));
         }
     }
 }
