@@ -1,4 +1,5 @@
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 
@@ -19,8 +20,8 @@ impl Settings {
 }
 
 pub struct Communication {
-    motor_tx: (Sender<CommandTx>, Receiver<CommandTx>),
-    motor_rx: (Sender<CommandRx>, Receiver<CommandRx>),
+    command_rx_sender: Option<Sender<CommandRx>>,
+    command_tx_receiver: Option<Receiver<CommandTx>>,
 }
 
 impl Communication {
@@ -28,8 +29,8 @@ impl Communication {
 
     pub fn new() -> Self {
         Self {
-            motor_tx: channel(),
-            motor_rx: channel(),
+            command_rx_sender: None,
+            command_tx_receiver: None,
         }
     }
 
@@ -40,17 +41,18 @@ impl Communication {
 
         let port2 = port1.try_clone().expect("Failed to clone serial port");
 
-        // TODO, check if it is ok to spawn thread like this
-        thread::scope(|s| {
-            s.spawn(|| {
-                self.tx_task(port1);
-            });
+        let (command_rx_sender, command_rx_recever) = mpsc::channel::<CommandRx>();
+        self.command_rx_sender = Some(command_rx_sender);
+
+        let (command_tx_sender, command_tx_receiver) = mpsc::channel::<CommandTx>();
+        self.command_tx_receiver = Some(command_tx_receiver);
+
+        thread::spawn(move || {
+            Self::tx_task(command_rx_recever, port1);
         });
 
-        thread::scope(|s| {
-            s.spawn(|| {
-                self.rx_task(port2);
-            });
+        thread::spawn(move || {
+            Self::rx_task(command_tx_sender, port2);
         });
     }
 
@@ -58,7 +60,7 @@ impl Communication {
         // TODO, rember to link close window action to this function
     }
 
-    fn tx_task(&mut self, mut serial_port: Box<dyn SerialPort>) {
+    fn tx_task(receiver: Receiver<CommandRx>, mut serial_port: Box<dyn SerialPort>) {
         // TODO
         // 1. error handling?
         // 2. a methond to terminate thread
@@ -68,7 +70,7 @@ impl Communication {
         let mut packet_encoder = PacketEncoder::new(packet_buffer);
 
         loop {
-            if let Ok(rx_data) = self.motor_rx.1.try_recv() {
+            if let Ok(rx_data) = receiver.try_recv() {
                 let stream = Vec::<u8>::new();
                 let mut pb_encoder = PbEncoder::new(stream);
 
@@ -85,7 +87,7 @@ impl Communication {
         }
     }
 
-    fn rx_task(&mut self, mut serial_port: Box<dyn SerialPort>) {
+    fn rx_task(sender: Sender<CommandTx>, mut serial_port: Box<dyn SerialPort>) {
         let mut packet_buffer = [0_u8; 128];
         let mut packet_decoder = PacketDecoder::new();
         let mut tx_packet = CommandTx::default();
@@ -99,13 +101,13 @@ impl Communication {
                     if packet_decoder
                         .parse_proto_message(&packet_buffer[good_start_index..], &mut tx_packet)
                     {
-                        self.motor_tx
-                            .0
+                        sender
                             .send(tx_packet.clone())
                             .expect("Fail to send tx packet");
                     }
                 }
             }
+
             serial_port.clear(serialport::ClearBuffer::Input).unwrap();
             thread::sleep(Duration::from_millis(200));
         }
