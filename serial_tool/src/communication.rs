@@ -1,6 +1,7 @@
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use std::thread;
+use std::sync::{mpsc, Arc};
+use std::thread::{self, JoinHandle};
 
 use micropb::{MessageEncode, PbEncoder};
 use serial_enumerator::get_serial_list;
@@ -21,20 +22,37 @@ impl Settings {
 pub struct Communication {
     command_rx_sender: Option<Sender<CommandRx>>,
     command_tx_receiver: Option<Receiver<CommandTx>>,
+    keep_alive: Arc<AtomicBool>,
+    thread_handles: Vec<JoinHandle<()>>,
+}
+
+impl Drop for Communication {
+    fn drop(&mut self) {
+        self.stop();
+    }
 }
 
 impl Communication {
+    // TODO add trace
     const BAUD_RATE: u32 = 115200;
 
     pub fn new() -> Self {
         Self {
             command_rx_sender: None,
             command_tx_receiver: None,
+            keep_alive: Arc::new(AtomicBool::new(false)),
+            thread_handles: Vec::new(),
         }
     }
 
     pub fn start(&mut self, port_name: &str) {
+        if !self.thread_handles.is_empty() {
+            // Already running
+            return;
+        }
+
         let port1 = serialport::new(port_name, Self::BAUD_RATE)
+            .flow_control(serialport::FlowControl::Software)
             .open()
             .expect("Failed to open serial port");
 
@@ -46,30 +64,48 @@ impl Communication {
         let (command_tx_sender, command_tx_receiver) = mpsc::channel::<CommandTx>();
         self.command_tx_receiver = Some(command_tx_receiver);
 
-        thread::spawn(move || {
-            Self::tx_task(command_rx_recever, port1);
-        });
+        self.keep_alive.store(true, Ordering::Relaxed);
 
-        thread::spawn(move || {
-            Self::rx_task(command_tx_sender, port2);
+        let keep_alive = self.keep_alive.clone();
+        let join_handle = thread::spawn(move || {
+            Self::tx_task(command_rx_recever, keep_alive, port1);
         });
+        self.thread_handles.push(join_handle);
+
+        let keep_alive = self.keep_alive.clone();
+        let join_handle = thread::spawn(move || {
+            Self::rx_task(command_tx_sender, keep_alive, port2);
+        });
+        self.thread_handles.push(join_handle);
     }
 
-    pub fn stop(&self) {
-        // TODO, rember to link close window action to this function
+    pub fn stop(&mut self) {
+        if self.thread_handles.is_empty() {
+            // Already stopped
+            return;
+        }
+
+        self.keep_alive.store(false, Ordering::Relaxed);
+        while !self.thread_handles.is_empty() {
+            let handle = self.thread_handles.remove(0);
+            if let Err(_e) = handle.join() {}
+        }
     }
 
-    fn tx_task(receiver: Receiver<CommandRx>, mut serial_port: Box<dyn SerialPort>) {
-        // TODO
-        // 1. error handling?
-        // 2. a methond to terminate thread
-        // ref: https://users.rust-lang.org/t/using-arc-to-terminate-a-thread/81533/9
-
+    fn tx_task(
+        cmd_receiver: Receiver<CommandRx>,
+        keep_alive: Arc<AtomicBool>,
+        mut serial_port: Box<dyn SerialPort>,
+    ) {
         let packet_buffer = [0_u8; 128];
         let mut packet_encoder = PacketEncoder::new(packet_buffer);
 
         loop {
-            if let Ok(rx_data) = receiver.recv() {
+            if !keep_alive.load(Ordering::Relaxed) {
+                break;
+            }
+
+            if let Ok(rx_data) = cmd_receiver.recv() {
                 let stream = Vec::<u8>::new();
                 let mut pb_encoder = PbEncoder::new(stream);
 
@@ -84,12 +120,20 @@ impl Communication {
         }
     }
 
-    fn rx_task(sender: Sender<CommandTx>, mut serial_port: Box<dyn SerialPort>) {
+    fn rx_task(
+        cmd_sender: Sender<CommandTx>,
+        keep_alive: Arc<AtomicBool>,
+        mut serial_port: Box<dyn SerialPort>,
+    ) {
         let mut packet_buffer = [0_u8; 128];
         let mut packet_decoder = PacketDecoder::new();
         let mut tx_packet = CommandTx::default();
 
         loop {
+            if !keep_alive.load(Ordering::Relaxed) {
+                break;
+            }
+
             let read_count = serial_port.read(&mut packet_buffer);
             if let Ok(_read_count) = read_count {
                 if let Some(good_start_index) =
@@ -98,7 +142,7 @@ impl Communication {
                     if packet_decoder
                         .parse_proto_message(&packet_buffer[good_start_index..], &mut tx_packet)
                     {
-                        sender
+                        cmd_sender
                             .send(tx_packet.clone())
                             .expect("Fail to send tx packet");
                     }
