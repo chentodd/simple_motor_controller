@@ -19,6 +19,13 @@ impl Settings {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum Error {
+    FailToOpenSerialPort,
+    FailToCloneSerialPort,
+    FailToJoinThread,
+}
+
 pub struct Communication {
     command_rx_sender: Option<Sender<CommandRx>>,
     command_tx_receiver: Option<Receiver<CommandTx>>,
@@ -28,7 +35,7 @@ pub struct Communication {
 
 impl Drop for Communication {
     fn drop(&mut self) {
-        self.stop();
+        let _ = self.stop();
     }
 }
 
@@ -45,18 +52,19 @@ impl Communication {
         }
     }
 
-    pub fn start(&mut self, port_name: &str) {
+    pub fn start(&mut self, port_name: &str) -> Result<(), Error> {
         if !self.thread_handles.is_empty() {
-            // Already running
-            return;
+            return Ok(());
         }
 
         let port1 = serialport::new(port_name, Self::BAUD_RATE)
             .flow_control(serialport::FlowControl::Software)
             .open()
-            .expect("Failed to open serial port");
+            .map_err(|_x| Error::FailToOpenSerialPort)?;
 
-        let port2 = port1.try_clone().expect("Failed to clone serial port");
+        let port2 = port1
+            .try_clone()
+            .map_err(|_x| Error::FailToCloneSerialPort)?;
 
         let (command_rx_sender, command_rx_recever) = mpsc::channel::<CommandRx>();
         self.command_rx_sender = Some(command_rx_sender);
@@ -77,19 +85,24 @@ impl Communication {
             Self::rx_task(command_tx_sender, keep_alive, port2);
         });
         self.thread_handles.push(join_handle);
+
+        Ok(())
     }
 
-    pub fn stop(&mut self) {
+    pub fn stop(&mut self) -> Result<(), Error> {
         if self.thread_handles.is_empty() {
-            // Already stopped
-            return;
+            return Ok(());
         }
 
         self.keep_alive.store(false, Ordering::Relaxed);
         while !self.thread_handles.is_empty() {
             let handle = self.thread_handles.remove(0);
-            if let Err(_e) = handle.join() {}
+            if let Err(_e) = handle.join() {
+                return Err(Error::FailToJoinThread);
+            }
         }
+
+        Ok(())
     }
 
     fn tx_task(
