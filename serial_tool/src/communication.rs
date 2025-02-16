@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc};
@@ -24,6 +25,16 @@ pub enum Error {
     FailToOpenSerialPort,
     FailToCloneSerialPort,
     FailToJoinThread,
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::FailToOpenSerialPort => write!(f, "Fail to open serial port"),
+            Error::FailToCloneSerialPort => write!(f, "Fail to clone serial port"),
+            Error::FailToJoinThread => write!(f, "Fail to join thread"),
+        }
+    }
 }
 
 pub struct Communication {
