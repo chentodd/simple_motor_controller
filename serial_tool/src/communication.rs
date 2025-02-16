@@ -63,6 +63,14 @@ impl Communication {
         }
     }
 
+    pub fn reset(&mut self) {
+        let _ = self.command_rx_sender.take();
+        let _ = self.command_tx_receiver.take();
+
+        self.keep_alive.store(false, Ordering::Relaxed);
+        self.thread_handles.clear();
+    }
+
     pub fn start(&mut self, port_name: &str) -> Result<(), Error> {
         if !self.thread_handles.is_empty() {
             return Ok(());
