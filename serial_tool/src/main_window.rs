@@ -213,10 +213,9 @@ impl MainWindow {
                 }
             });
 
-        // TODO, when the get function in communication is ready, replace this line
-        // with the data from communication
-        self.measurement_window
-            .update_measurement_window(ProfileData::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0));
+        if let Some(data) = self.communication.get_tx_data() {
+            self.measurement_window.update_measurement_window(data);
+        }
     }
 
     fn display_error_window(&mut self, ui: &mut Ui) {
