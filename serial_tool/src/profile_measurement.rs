@@ -1,7 +1,6 @@
 use egui_plot::PlotPoints;
 use std::collections::VecDeque;
 use std::fmt::Display;
-use std::sync::mpsc::Receiver;
 
 #[derive(Default)]
 pub struct ProfileData {
@@ -57,27 +56,23 @@ impl Display for ProfileDataType {
 }
 
 pub struct MeasurementWindow {
-    receiver: Receiver<ProfileData>,
     window_values: VecDeque<ProfileData>,
     window_size: usize,
 }
 
 impl MeasurementWindow {
-    pub fn new(window_size: usize, receiver: Receiver<ProfileData>) -> Self {
+    pub fn new(window_size: usize) -> Self {
         Self {
-            receiver,
             window_values: VecDeque::new(),
             window_size,
         }
     }
 
-    pub fn update_measurement_window(&mut self) {
-        if let Ok(profile_data) = self.receiver.try_recv() {
-            if self.window_values.len() == self.window_size {
-                self.window_values.pop_front();
-            }
-            self.window_values.push_back(profile_data);
+    pub fn update_measurement_window(&mut self, data: ProfileData) {
+        if self.window_values.len() == self.window_size {
+            self.window_values.pop_front();
         }
+        self.window_values.push_back(data);
     }
 
     pub fn get_data(&self, get_data_type: ProfileDataType) -> PlotPoints {
