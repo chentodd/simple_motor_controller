@@ -2,6 +2,8 @@ use egui_plot::PlotPoints;
 use std::collections::VecDeque;
 use std::fmt::Display;
 
+use crate::proto::command_::CommandTx;
+
 #[derive(Default)]
 pub struct ProfileData {
     intp_pos: f32,
@@ -72,11 +74,18 @@ impl MeasurementWindow {
         self.window_values.clear();
     }
 
-    pub fn update_measurement_window(&mut self, data: ProfileData) {
+    pub fn update_measurement_window(&mut self, data: CommandTx) {
         if self.window_values.len() == self.window_size {
             self.window_values.pop_front();
         }
-        self.window_values.push_back(data);
+        self.window_values.push_back(ProfileData::new(
+            data.left_motor.intp_pos,
+            data.left_motor.intp_vel,
+            data.left_motor.intp_acc,
+            data.left_motor.intp_jerk,
+            data.left_motor.actual_pos,
+            data.left_motor.actual_vel,
+        ));
     }
 
     pub fn get_data(&self, get_data_type: ProfileDataType) -> PlotPoints {
