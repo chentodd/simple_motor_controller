@@ -232,7 +232,11 @@ impl MainWindow {
                 ui.label(format!("❌ {}", self.error_window.error_message));
                 if ui.button("Ok").clicked() {
                     self.error_window.show_error = false;
-                    // TODO, add reset
+                    self.error_window.error_message.clear();
+
+                    // Clear data when button is clicked
+                    self.measurement_window.reset();
+                    self.communication.reset();
                 }
             });
     }
