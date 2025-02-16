@@ -68,6 +68,10 @@ impl MeasurementWindow {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.window_values.clear();
+    }
+
     pub fn update_measurement_window(&mut self, data: ProfileData) {
         if self.window_values.len() == self.window_size {
             self.window_values.pop_front();
