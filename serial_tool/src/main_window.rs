@@ -1,5 +1,4 @@
 use std::fmt::Display;
-use std::sync::mpsc::Receiver;
 
 use eframe::{
     egui::{self, Button, ComboBox, ScrollArea, Slider, TextEdit, Ui, Vec2},
@@ -80,13 +79,9 @@ impl App for MainWindow {
 }
 
 impl MainWindow {
-    pub fn new(
-        _cc: &CreationContext<'_>,
-        window_size: usize,
-        data_receiver: Receiver<ProfileData>,
-    ) -> Self {
+    pub fn new(_cc: &CreationContext<'_>, window_size: usize) -> Self {
         Self {
-            measurement_window: MeasurementWindow::new(window_size, data_receiver),
+            measurement_window: MeasurementWindow::new(window_size),
             communication: Communication::new(),
             error_window: ErrorWindow::default(),
             selected_mode: Operation::IntpVel,
@@ -218,7 +213,10 @@ impl MainWindow {
                 }
             });
 
-        self.measurement_window.update_measurement_window();
+        // TODO, when the get function in communication is ready, replace this line
+        // with the data from communication
+        self.measurement_window
+            .update_measurement_window(ProfileData::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0));
     }
 
     fn display_error_window(&mut self, ui: &mut Ui) {
