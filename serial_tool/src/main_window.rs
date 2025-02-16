@@ -41,6 +41,12 @@ impl Display for Operation {
 }
 
 impl App for MainWindow {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        if let Err(_e) = self.communication.stop() {
+            // TODO, log error if needed
+        }
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("funtionality_panel").show(ctx, |ui| {
             ui.columns(2, |col| {
