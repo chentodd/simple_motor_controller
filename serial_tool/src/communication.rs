@@ -52,6 +52,7 @@ impl Drop for Communication {
 
 impl Communication {
     // TODO add trace
+    // TODO add set function to set command rx data
     const BAUD_RATE: u32 = 115200;
 
     pub fn new() -> Self {
@@ -122,6 +123,16 @@ impl Communication {
         }
 
         Ok(())
+    }
+
+    pub fn get_tx_data(&self) -> Option<CommandTx> {
+        if let Some(receiver) = self.command_tx_receiver.as_ref() {
+            if let Ok(data) = receiver.try_recv() {
+                return Some(data);
+            }
+        }
+
+        None
     }
 
     fn tx_task(
