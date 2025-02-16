@@ -7,18 +7,26 @@ use eframe::{
 };
 use egui_plot::{Legend, Line, Plot};
 
-use crate::communication::Settings;
+use crate::communication::{Communication, Settings};
 use crate::profile_measurement::{MeasurementWindow, ProfileData, ProfileDataType};
 use crate::proto::motor_::Operation;
 
 pub struct MainWindow {
     measurement_window: MeasurementWindow,
+    communication: Communication,
+    error_window: ErrorWindow,
     selected_mode: Operation,
     selected_port: String,
     conn_button_clicked: bool,
     velocity_command: f32,
     position_command: String,
     profile_data_flags: [(ProfileDataType, bool); 6],
+}
+
+#[derive(Default)]
+struct ErrorWindow {
+    show_error: bool,
+    error_message: String,
 }
 
 impl Display for Operation {
@@ -60,6 +68,7 @@ impl App for MainWindow {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             self.display_profile_data_graph(ui);
+            self.display_error_window(ui);
         });
     }
 }
@@ -72,6 +81,8 @@ impl MainWindow {
     ) -> Self {
         Self {
             measurement_window: MeasurementWindow::new(window_size, data_receiver),
+            communication: Communication::new(),
+            error_window: ErrorWindow::default(),
             selected_mode: Operation::IntpVel,
             selected_port: "".to_string(),
             conn_button_clicked: false,
@@ -114,10 +125,18 @@ impl MainWindow {
                 .clicked()
             {
                 self.conn_button_clicked = !self.conn_button_clicked;
+
+                let start_stop_result = match self.conn_button_clicked {
+                    true => self.communication.start(&self.selected_port),
+                    false => self.communication.stop(),
+                };
+
+                if let Err(e) = start_stop_result {
+                    self.error_window.show_error = true;
+                    self.error_window.error_message = e.to_string();
+                }
             }
         });
-
-        // TODO, connect to serial port when `button_clicked` is true
     }
 
     fn display_mode_panel(&mut self, ui: &mut Ui) {
@@ -194,5 +213,23 @@ impl MainWindow {
             });
 
         self.measurement_window.update_measurement_window();
+    }
+
+    fn display_error_window(&mut self, ui: &mut Ui) {
+        if !self.error_window.show_error {
+            return;
+        }
+
+        egui::Window::new("Error")
+            .collapsible(false)
+            .movable(false)
+            .resizable(false)
+            .show(ui.ctx(), |ui| {
+                ui.label(format!("❌ {}", self.error_window.error_message));
+                if ui.button("Ok").clicked() {
+                    self.error_window.show_error = false;
+                    // TODO, add reset
+                }
+            });
     }
 }
