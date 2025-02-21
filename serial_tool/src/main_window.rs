@@ -7,7 +7,7 @@ use eframe::{
 use egui_plot::{Legend, Line, Plot};
 
 use crate::communication::{Communication, Settings};
-use crate::profile_measurement::{MeasurementWindow, ProfileData, ProfileDataType};
+use crate::profile_measurement::{MeasurementWindow, ProfileDataType};
 use crate::proto::motor_::Operation;
 
 pub struct MainWindow {
