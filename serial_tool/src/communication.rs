@@ -125,6 +125,13 @@ impl Communication {
         Ok(())
     }
 
+    pub fn set_rx_data(&mut self, data: CommandRx) {
+        if let Some(sender) = self.command_rx_sender.as_ref() {
+            // TODO add logs
+            let _ = sender.send(data);
+        }
+    }
+
     pub fn get_tx_data(&self) -> Option<CommandTx> {
         if let Some(receiver) = self.command_tx_receiver.as_ref() {
             if let Ok(data) = receiver.try_recv() {
