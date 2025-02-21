@@ -39,7 +39,7 @@ impl Display for Error {
 
 pub struct Communication {
     command_rx_sender: Option<Sender<CommandRx>>,
-    command_tx_receiver: Option<Receiver<CommandTx>>,
+    command_tx_recv: Option<Receiver<CommandTx>>,
     keep_alive: Arc<AtomicBool>,
     thread_handles: Vec<JoinHandle<()>>,
 }
@@ -57,7 +57,7 @@ impl Communication {
     pub fn new() -> Self {
         Self {
             command_rx_sender: None,
-            command_tx_receiver: None,
+            command_tx_recv: None,
             keep_alive: Arc::new(AtomicBool::new(false)),
             thread_handles: Vec::new(),
         }
@@ -65,7 +65,7 @@ impl Communication {
 
     pub fn reset(&mut self) {
         let _ = self.command_rx_sender.take();
-        let _ = self.command_tx_receiver.take();
+        let _ = self.command_tx_recv.take();
 
         self.keep_alive.store(false, Ordering::Relaxed);
         self.thread_handles.clear();
@@ -85,24 +85,19 @@ impl Communication {
             .try_clone()
             .map_err(|_x| Error::FailToCloneSerialPort)?;
 
-        let (command_rx_sender, command_rx_recever) = mpsc::channel::<CommandRx>();
+        let (command_rx_sender, command_rx_recv) = mpsc::channel::<CommandRx>();
         self.command_rx_sender = Some(command_rx_sender);
 
-        let (command_tx_sender, command_tx_receiver) = mpsc::channel::<CommandTx>();
-        self.command_tx_receiver = Some(command_tx_receiver);
+        let (command_tx_sender, command_tx_recv) = mpsc::channel::<CommandTx>();
+        self.command_tx_recv = Some(command_tx_recv);
 
-        let (buffer_status_sender, buffer_status_receiver) = mpsc::channel::<bool>();
+        let (buffer_status_sender, buffer_status_recv) = mpsc::channel::<bool>();
 
         self.keep_alive.store(true, Ordering::Relaxed);
 
         let keep_alive = self.keep_alive.clone();
         let join_handle = thread::spawn(move || {
-            Self::tx_task(
-                command_rx_recever,
-                buffer_status_receiver,
-                keep_alive,
-                port1,
-            );
+            Self::tx_task(command_rx_recv, buffer_status_recv, keep_alive, port1);
         });
         self.thread_handles.push(join_handle);
 
@@ -139,8 +134,8 @@ impl Communication {
     }
 
     pub fn get_tx_data(&self) -> Option<CommandTx> {
-        if let Some(receiver) = self.command_tx_receiver.as_ref() {
-            if let Ok(data) = receiver.try_recv() {
+        if let Some(recv) = self.command_tx_recv.as_ref() {
+            if let Ok(data) = recv.try_recv() {
                 return Some(data);
             }
         }
@@ -149,8 +144,8 @@ impl Communication {
     }
 
     fn tx_task(
-        cmd_receiver: Receiver<CommandRx>,
-        buffer_status_receiver: Receiver<bool>,
+        cmd_recv: Receiver<CommandRx>,
+        buffer_status_recv: Receiver<bool>,
         keep_alive: Arc<AtomicBool>,
         mut serial_port: Box<dyn SerialPort>,
     ) {
@@ -162,12 +157,12 @@ impl Communication {
                 break;
             }
 
-            if let Ok(buffer_status) = buffer_status_receiver.recv() {
+            if let Ok(buffer_status) = buffer_status_recv.recv() {
                 if !buffer_status {
                     continue;
                 }
 
-                match cmd_receiver.try_recv() {
+                match cmd_recv.try_recv() {
                     Ok(rx_data) => {
                         let stream = Vec::<u8>::new();
                         let mut pb_encoder = PbEncoder::new(stream);
