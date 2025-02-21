@@ -52,7 +52,6 @@ impl Drop for Communication {
 
 impl Communication {
     // TODO add trace
-    // TODO add set function to set command rx data
     const BAUD_RATE: u32 = 115200;
 
     pub fn new() -> Self {
@@ -92,17 +91,24 @@ impl Communication {
         let (command_tx_sender, command_tx_receiver) = mpsc::channel::<CommandTx>();
         self.command_tx_receiver = Some(command_tx_receiver);
 
+        let (buffer_status_sender, buffer_status_receiver) = mpsc::channel::<bool>();
+
         self.keep_alive.store(true, Ordering::Relaxed);
 
         let keep_alive = self.keep_alive.clone();
         let join_handle = thread::spawn(move || {
-            Self::tx_task(command_rx_recever, keep_alive, port1);
+            Self::tx_task(
+                command_rx_recever,
+                buffer_status_receiver,
+                keep_alive,
+                port1,
+            );
         });
         self.thread_handles.push(join_handle);
 
         let keep_alive = self.keep_alive.clone();
         let join_handle = thread::spawn(move || {
-            Self::rx_task(command_tx_sender, keep_alive, port2);
+            Self::rx_task(command_tx_sender, buffer_status_sender, keep_alive, port2);
         });
         self.thread_handles.push(join_handle);
 
@@ -144,6 +150,7 @@ impl Communication {
 
     fn tx_task(
         cmd_receiver: Receiver<CommandRx>,
+        buffer_status_receiver: Receiver<bool>,
         keep_alive: Arc<AtomicBool>,
         mut serial_port: Box<dyn SerialPort>,
     ) {
@@ -155,23 +162,33 @@ impl Communication {
                 break;
             }
 
-            if let Ok(rx_data) = cmd_receiver.recv() {
-                let stream = Vec::<u8>::new();
-                let mut pb_encoder = PbEncoder::new(stream);
+            if let Ok(buffer_status) = buffer_status_receiver.recv() {
+                if !buffer_status {
+                    continue;
+                }
 
-                rx_data.encode(&mut pb_encoder).unwrap();
-                let output_packet =
-                    packet_encoder.create_packet(MessageId::CommandRx, pb_encoder.as_writer());
+                match cmd_receiver.try_recv() {
+                    Ok(rx_data) => {
+                        let stream = Vec::<u8>::new();
+                        let mut pb_encoder = PbEncoder::new(stream);
 
-                serial_port
-                    .write_all(output_packet)
-                    .expect("Failed to write to serial port");
+                        rx_data.encode(&mut pb_encoder).unwrap();
+                        let output_packet = packet_encoder
+                            .create_packet(MessageId::CommandRx, pb_encoder.as_writer());
+
+                        serial_port
+                            .write_all(output_packet)
+                            .expect("Failed to write to serial port");
+                    }
+                    Err(_) => (),
+                }
             }
         }
     }
 
     fn rx_task(
         cmd_sender: Sender<CommandTx>,
+        buffer_status_sender: Sender<bool>,
         keep_alive: Arc<AtomicBool>,
         mut serial_port: Box<dyn SerialPort>,
     ) {
@@ -192,6 +209,10 @@ impl Communication {
                     if packet_decoder
                         .parse_proto_message(&packet_buffer[good_start_index..], &mut tx_packet)
                     {
+                        // TODO, add logs
+                        let buffer_full = tx_packet.left_motor.command_buffer_full;
+                        let _ = buffer_status_sender.send(buffer_full);
+
                         cmd_sender
                             .send(tx_packet.clone())
                             .expect("Fail to send tx packet");
