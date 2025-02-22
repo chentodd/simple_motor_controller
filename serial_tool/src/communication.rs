@@ -10,6 +10,7 @@ use serialport::SerialPort;
 use utils::*;
 
 use crate::proto::command_::{CommandRx, CommandTx};
+use crate::proto::motor_::MotorRx;
 
 pub struct Settings;
 
@@ -42,6 +43,7 @@ pub struct Communication {
     command_tx_recv: Option<Receiver<CommandTx>>,
     keep_alive: Arc<AtomicBool>,
     thread_handles: Vec<JoinHandle<()>>,
+    motor_rx_data: Option<MotorRx>,
 }
 
 impl Drop for Communication {
@@ -60,6 +62,7 @@ impl Communication {
             command_tx_recv: None,
             keep_alive: Arc::new(AtomicBool::new(false)),
             thread_handles: Vec::new(),
+            motor_rx_data: None,
         }
     }
 
@@ -126,10 +129,20 @@ impl Communication {
         Ok(())
     }
 
-    pub fn set_rx_data(&mut self, data: CommandRx) {
+    pub fn set_rx_data(&mut self, data: MotorRx) {
         if let Some(sender) = self.command_rx_sender.as_ref() {
+            if let Some(prev_data) = self.motor_rx_data.as_ref() {
+                if *prev_data == data {
+                    return;
+                }
+            }
+
             // TODO add logs
-            let _ = sender.send(data);
+            self.motor_rx_data = Some(data.clone());
+
+            let mut rx_data = CommandRx::default();
+            rx_data.set_left_motor(data);
+            let _ = sender.send(rx_data);
         }
     }
 
