@@ -163,7 +163,10 @@ impl MainWindow {
         if !self.conn_button_clicked {
             ui.disable();
         }
-        ui.add(Slider::new(&mut self.velocity_command, -1.0..=1.0).text("motor velocity ratio"));
+        ui.add(
+Slider::new(&mut self.velocity_command, -3000.0..=3000.0)
+.text("motor velocity cmd (rpm)"),
+);
     }
 
     fn display_position_command_panel(&mut self, ui: &mut Ui) {
