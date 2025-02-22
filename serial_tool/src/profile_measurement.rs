@@ -48,11 +48,11 @@ impl Display for ProfileDataType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ProfileDataType::IntpPos => write!(f, "intp_pos"),
-            ProfileDataType::IntpVel => write!(f, "intp_pos"),
-            ProfileDataType::IntpAcc => write!(f, "intp_pos"),
-            ProfileDataType::IntpJerk => write!(f, "intp_pos"),
-            ProfileDataType::ActPos => write!(f, "intp_pos"),
-            ProfileDataType::ActVel => write!(f, "intp_pos"),
+            ProfileDataType::IntpVel => write!(f, "intp_vel"),
+            ProfileDataType::IntpAcc => write!(f, "intp_acc"),
+            ProfileDataType::IntpJerk => write!(f, "intp_jerk"),
+            ProfileDataType::ActPos => write!(f, "act_pos"),
+            ProfileDataType::ActVel => write!(f, "act_vel"),
         }
     }
 }
