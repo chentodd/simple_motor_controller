@@ -82,6 +82,8 @@ impl App for MainWindow {
         });
 
         self.send_motor_command();
+
+        ctx.request_repaint();
     }
 }
 
@@ -136,7 +138,10 @@ impl MainWindow {
 
                 let start_stop_result = match self.conn_button_clicked {
                     true => self.communication.start(&self.selected_port),
-                    false => self.communication.stop(),
+                    false => {
+                        self.measurement_window.reset();
+                        self.communication.stop()
+                    }
                 };
 
                 if let Err(e) = start_stop_result {
