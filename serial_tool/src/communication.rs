@@ -143,7 +143,7 @@ impl Communication {
             let mut rx_data = CommandRx::default();
             rx_data.set_left_motor(data);
 
-            if             let Err(_e) = sender.send(rx_data) {
+            if let Err(_e) = sender.send(rx_data) {
                 error!("set_rx_data, fail to send data to channel, {_e}");
             }
             debug!("set_rx_data");
@@ -228,7 +228,7 @@ impl Communication {
                         .parse_proto_message(&packet_buffer[good_start_index..], &mut tx_packet)
                     {
                         let buffer_full = tx_packet.left_motor.command_buffer_full;
-                        
+
                         if let Err(_e) = buffer_status_sender.send(buffer_full) {
                             error!("rx_task(), fail to send bool data to channel, {_e}");
                         }
