@@ -175,8 +175,8 @@ impl Communication {
                 break;
             }
 
-            if let Ok(buffer_status) = buffer_status_recv.recv() {
-                if !buffer_status {
+            if let Ok(buffer_full) = buffer_status_recv.recv() {
+                if buffer_full {
                     continue;
                 }
 
