@@ -6,9 +6,12 @@ use eframe::{
 };
 use egui_plot::{Legend, Line, Plot};
 
-use crate::communication::{Communication, Settings};
 use crate::profile_measurement::{MeasurementWindow, ProfileDataType};
 use crate::proto::motor_::Operation;
+use crate::{
+    communication::{Communication, Settings},
+    proto::motor_::MotorRx,
+};
 
 pub struct MainWindow {
     measurement_window: MeasurementWindow,
@@ -75,6 +78,8 @@ impl App for MainWindow {
             self.display_profile_data_graph(ui);
             self.display_error_window(ui);
         });
+
+        self.send_motor_command();
     }
 }
 
@@ -164,9 +169,9 @@ impl MainWindow {
             ui.disable();
         }
         ui.add(
-Slider::new(&mut self.velocity_command, -3000.0..=3000.0)
-.text("motor velocity cmd (rpm)"),
-);
+            Slider::new(&mut self.velocity_command, -3000.0..=3000.0)
+                .text("motor velocity cmd (rpm)"),
+        );
     }
 
     fn display_position_command_panel(&mut self, ui: &mut Ui) {
@@ -241,5 +246,14 @@ Slider::new(&mut self.velocity_command, -3000.0..=3000.0)
                     self.communication.reset();
                 }
             });
+    }
+
+    fn send_motor_command(&mut self) {
+        // TODO, remember to update position command
+        let mut motor_command = MotorRx::default();
+        motor_command.operation = self.selected_mode;
+        motor_command.set_target_vel(self.velocity_command);
+
+        self.communication.set_rx_data(motor_command);
     }
 }
