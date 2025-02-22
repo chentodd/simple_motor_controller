@@ -6,6 +6,8 @@ use eframe::{
 };
 use egui_plot::{Legend, Line, Plot};
 
+use log::error;
+
 use crate::profile_measurement::{MeasurementWindow, ProfileDataType};
 use crate::proto::motor_::Operation;
 use crate::{
@@ -45,7 +47,7 @@ impl Display for Operation {
 impl App for MainWindow {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         if let Err(_e) = self.communication.stop() {
-            // TODO, log error if needed
+            error!("on_exit(), failed, {_e}");
         }
     }
 

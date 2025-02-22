@@ -4,6 +4,8 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc};
 use std::thread::{self, JoinHandle};
 
+use log::{debug, error};
+
 use micropb::{MessageEncode, PbEncoder};
 use serial_enumerator::get_serial_list;
 use serialport::SerialPort;
@@ -53,7 +55,6 @@ impl Drop for Communication {
 }
 
 impl Communication {
-    // TODO add trace
     const BAUD_RATE: u32 = 115200;
 
     pub fn new() -> Self {
@@ -122,6 +123,7 @@ impl Communication {
         while !self.thread_handles.is_empty() {
             let handle = self.thread_handles.remove(0);
             if let Err(_e) = handle.join() {
+                error!("stop(), fail to join threads");
                 return Err(Error::FailToJoinThread);
             }
         }
@@ -137,7 +139,6 @@ impl Communication {
                 }
             }
 
-            // TODO add logs
             self.motor_rx_data = Some(data.clone());
 
             let mut rx_data = CommandRx::default();
@@ -167,6 +168,7 @@ impl Communication {
 
         loop {
             if !keep_alive.load(Ordering::Relaxed) {
+                debug!("tx_task(), get stopped");
                 break;
             }
 
@@ -175,8 +177,11 @@ impl Communication {
                     continue;
                 }
 
+                debug!("tx_task(), buffer_status: {buffer_status}");
                 match cmd_recv.try_recv() {
                     Ok(rx_data) => {
+                        debug!("tx_task(), rx_data: {rx_data:?}");
+
                         let stream = Vec::<u8>::new();
                         let mut pb_encoder = PbEncoder::new(stream);
 
@@ -184,9 +189,9 @@ impl Communication {
                         let output_packet = packet_encoder
                             .create_packet(MessageId::CommandRx, pb_encoder.as_writer());
 
-                        serial_port
-                            .write_all(output_packet)
-                            .expect("Failed to write to serial port");
+                        if let Err(_e) = serial_port.write_all(output_packet) {
+                            error!("tx_task(), fail to write data to serial port, {_e}");
+                        }
                     }
                     Err(_) => (),
                 }
@@ -206,6 +211,7 @@ impl Communication {
 
         loop {
             if !keep_alive.load(Ordering::Relaxed) {
+                debug!("rx_task(), get stopped");
                 break;
             }
 
@@ -217,13 +223,16 @@ impl Communication {
                     if packet_decoder
                         .parse_proto_message(&packet_buffer[good_start_index..], &mut tx_packet)
                     {
-                        // TODO, add logs
                         let buffer_full = tx_packet.left_motor.command_buffer_full;
-                        let _ = buffer_status_sender.send(buffer_full);
+                        debug!("rx_task(), received serial data, {tx_packet:?}");
+                        
+                        if let Err(_e) = buffer_status_sender.send(buffer_full) {
+                            error!("rx_task(), fail to send bool data to channel, {_e}");
+                        }
 
-                        cmd_sender
-                            .send(tx_packet.clone())
-                            .expect("Fail to send tx packet");
+                        if let Err(_e) = cmd_sender.send(tx_packet.clone()) {
+                            error!("rx_task(), fail to send serial data to channel, {_e}");
+                        }
                     }
                 }
             }
