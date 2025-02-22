@@ -81,7 +81,6 @@ impl Communication {
         }
 
         let port1 = serialport::new(port_name, Self::BAUD_RATE)
-            .flow_control(serialport::FlowControl::Software)
             .open()
             .map_err(|_x| Error::FailToOpenSerialPort)?;
 
