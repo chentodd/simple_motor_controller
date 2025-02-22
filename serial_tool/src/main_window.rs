@@ -98,11 +98,11 @@ impl MainWindow {
             position_command: "".to_string(),
             profile_data_flags: [
                 (ProfileDataType::IntpPos, false),
-                (ProfileDataType::IntpPos, false),
-                (ProfileDataType::IntpPos, false),
-                (ProfileDataType::IntpPos, false),
-                (ProfileDataType::IntpPos, false),
-                (ProfileDataType::IntpPos, false),
+                (ProfileDataType::IntpVel, false),
+                (ProfileDataType::IntpAcc, false),
+                (ProfileDataType::IntpJerk, false),
+                (ProfileDataType::ActPos, false),
+                (ProfileDataType::ActVel, false),
             ],
         }
     }
