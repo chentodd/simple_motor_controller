@@ -141,8 +141,6 @@ impl MainWindow {
                 "Start"
             };
 
-            self.conn_button_clicked = true;
-
             let conn_button = Button::new(text_in_button);
             if ui
                 .add_enabled(!self.selected_port.is_empty(), conn_button)
