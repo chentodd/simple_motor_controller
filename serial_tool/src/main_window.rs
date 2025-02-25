@@ -230,9 +230,9 @@ impl MainWindow {
         }
 
         let text_in_button = if !self.start_showing_profile_data {
-            "▶️"
+            "▶"
         } else {
-            "⏸️"
+            "⏸"
         };
 
         if ui.button(text_in_button).clicked() {
