@@ -4,7 +4,7 @@ use nom::{
     combinator::{all_consuming, opt},
     error::Error,
     multi::separated_list0,
-    number::complete::double,
+    number::complete::float,
     sequence::{delimited, preceded, terminated},
     IResult, Parser,
 };
@@ -12,9 +12,9 @@ use std::collections::VecDeque;
 
 #[derive(Debug, Default)]
 pub struct CommandData {
-    pub dist: f64,
-    pub vel: f64,
-    pub vel_end: f64,
+    pub dist: f32,
+    pub vel: f32,
+    pub vel_end: f32,
 }
 
 pub struct CommandParser {
@@ -50,11 +50,11 @@ impl CommandParser {
     fn parse_floats(input: &str) -> IResult<&str, CommandData> {
         // Consume '(' with optional surrounding whitespace, and parse first float A in '(A'
         let (input, _) = delimited(multispace0, tag("("), multispace0).parse(input)?;
-        let (input, dist) = double(input)?;
+        let (input, dist) = float(input)?;
 
         // Consume optional surrounding whitespace and comma, and parse second float B in '(A, B'
         let (input, _) = delimited(multispace0, tag(","), multispace0).parse(input)?;
-        let (input, vel) = double(input)?;
+        let (input, vel) = float(input)?;
 
         // The third float C is optional '(A, B, C'), and it could be:
         // * '(A, B, C)'
@@ -63,7 +63,7 @@ impl CommandParser {
         // so we need to optionally parse a comma and a third float.
         let (input, vel_end_opt) = preceded(
             delimited(multispace0, opt(tag(",")), multispace0),
-            opt(double),
+            opt(float),
         )
         .parse(input)?;
 
