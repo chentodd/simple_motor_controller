@@ -10,7 +10,7 @@ use log::error;
 
 use crate::{
     communication::{Communication, Settings},
-position_command_parser::CommandParser,
+    position_command_parser::CommandParser,
     profile_measurement::{MeasurementWindow, ProfileDataType},
     proto::motor_::{MotorRx, Operation},
 };
@@ -18,6 +18,7 @@ position_command_parser::CommandParser,
 pub struct MainWindow {
     measurement_window: MeasurementWindow,
     communication: Communication,
+    position_command_parser: CommandParser,
     error_window: ErrorWindow,
     selected_mode: Operation,
     selected_port: String,
@@ -100,6 +101,7 @@ impl MainWindow {
         Self {
             measurement_window: MeasurementWindow::new(window_size),
             communication: Communication::new(),
+            position_command_parser: CommandParser::new(),
             error_window: ErrorWindow::default(),
             selected_mode: Operation::IntpVel,
             selected_port: "".to_string(),
@@ -210,7 +212,13 @@ impl MainWindow {
             .add_enabled(!self.position_command.is_empty(), send_button)
             .clicked()
         {
-            // TODO, send position commands
+            match self.position_command_parser.parse(&self.position_command) {
+                Ok(_) => (),
+                Err(e) => {
+                    self.error_window.error_type = ErrorType::ParseCommandError;
+                    self.error_window.error_message = e.to_string();
+                }
+            }
         }
     }
 
@@ -258,9 +266,9 @@ impl MainWindow {
 
                     match self.error_window.error_type {
                         ErrorType::StartStopError => {
-                    // Clear data when button is clicked
-                    self.measurement_window.reset();
-                    self.communication.reset();
+                            // Clear data when button is clicked
+                            self.measurement_window.reset();
+                            self.communication.reset();
                         }
                         _ => (),
                     }
