@@ -26,6 +26,7 @@ pub struct MainWindow {
     velocity_command: f32,
     position_command: String,
     profile_data_flags: [(ProfileDataType, bool); 6],
+    start_showing_profile_data: bool,
 }
 
 #[derive(Default, PartialEq, Eq)]
@@ -81,8 +82,8 @@ impl App for MainWindow {
             self.display_position_command_panel(ui);
         });
 
-        egui::SidePanel::right("profile_data_selection_panel").show(ctx, |ui| {
-            self.display_profile_data_selection_panel(ui);
+        egui::SidePanel::right("profile_data_control_panel").show(ctx, |ui| {
+            self.display_profile_control_panel(ui);
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -116,6 +117,7 @@ impl MainWindow {
                 (ProfileDataType::ActPos, false),
                 (ProfileDataType::ActVel, false),
             ],
+            start_showing_profile_data: false,
         }
     }
 
@@ -222,9 +224,19 @@ impl MainWindow {
         }
     }
 
-    fn display_profile_data_selection_panel(&mut self, ui: &mut Ui) {
+    fn display_profile_control_panel(&mut self, ui: &mut Ui) {
         if !self.conn_button_clicked {
             ui.disable();
+        }
+
+        let text_in_button = if !self.start_showing_profile_data {
+            "▶️"
+        } else {
+            "⏸️"
+        };
+
+        if ui.button(text_in_button).clicked() {
+            self.start_showing_profile_data = !self.start_showing_profile_data;
         }
 
         for item in self.profile_data_flags.iter_mut() {
@@ -245,7 +257,9 @@ impl MainWindow {
             });
 
         if let Some(data) = self.communication.get_tx_data() {
-            self.measurement_window.update_measurement_window(data);
+            if self.start_showing_profile_data {
+                self.measurement_window.update_measurement_window(data);
+            }
         }
     }
 
@@ -295,8 +309,8 @@ impl MainWindow {
 
                     motor_commads.push(pos_cmd);
                 }
-            },
-            _ => ()
+            }
+            _ => (),
         }
 
         for motor_cmd in motor_commads {
