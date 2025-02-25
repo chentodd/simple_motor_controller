@@ -277,11 +277,30 @@ impl MainWindow {
     }
 
     fn send_motor_command(&mut self) {
-        // TODO, remember to update position command
-        let mut motor_command = MotorRx::default();
-        motor_command.operation = self.selected_mode;
-        motor_command.set_target_vel(self.velocity_command);
+        let mut motor_commads = Vec::new();
 
-        self.communication.set_rx_data(motor_command);
+        match self.selected_mode {
+            Operation::IntpVel => {
+                let mut vel_cmd = MotorRx::default();
+                vel_cmd.set_target_vel(self.velocity_command);
+
+                motor_commads.push(vel_cmd);
+            }
+            Operation::IntpPos => {
+                while let Some(cmd) = self.position_command_parser.get_command() {
+                    let mut pos_cmd = MotorRx::default();
+                    pos_cmd.set_target_dist(cmd.dist);
+                    pos_cmd.set_target_vel(cmd.vel);
+                    pos_cmd.set_target_vel_end(cmd.vel_end);
+
+                    motor_commads.push(pos_cmd);
+                }
+            },
+            _ => ()
+        }
+
+        for motor_cmd in motor_commads {
+            self.communication.set_rx_data(motor_cmd);
+        }
     }
 }
