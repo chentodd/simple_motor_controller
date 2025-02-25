@@ -8,11 +8,11 @@ use egui_plot::{Legend, Line, Plot};
 
 use log::error;
 
-use crate::profile_measurement::{MeasurementWindow, ProfileDataType};
-use crate::proto::motor_::Operation;
 use crate::{
     communication::{Communication, Settings},
-    proto::motor_::MotorRx,
+position_command_parser::CommandParser,
+    profile_measurement::{MeasurementWindow, ProfileDataType},
+    proto::motor_::{MotorRx, Operation},
 };
 
 pub struct MainWindow {
