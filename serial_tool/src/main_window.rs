@@ -27,9 +27,17 @@ pub struct MainWindow {
     profile_data_flags: [(ProfileDataType, bool); 6],
 }
 
+#[derive(Default, PartialEq, Eq)]
+enum ErrorType {
+    #[default]
+    None,
+    StartStopError,
+    ParseCommandError,
+}
+
 #[derive(Default)]
 struct ErrorWindow {
-    show_error: bool,
+    error_type: ErrorType,
     error_message: String,
 }
 
@@ -145,7 +153,7 @@ impl MainWindow {
                 };
 
                 if let Err(e) = start_stop_result {
-                    self.error_window.show_error = true;
+                    self.error_window.error_type = ErrorType::StartStopError;
                     self.error_window.error_message = e.to_string();
                 }
             }
@@ -234,7 +242,7 @@ impl MainWindow {
     }
 
     fn display_error_window(&mut self, ui: &mut Ui) {
-        if !self.error_window.show_error {
+        if self.error_window.error_type == ErrorType::None {
             return;
         }
 
@@ -245,12 +253,17 @@ impl MainWindow {
             .show(ui.ctx(), |ui| {
                 ui.label(format!("❌ {}", self.error_window.error_message));
                 if ui.button("Ok").clicked() {
-                    self.error_window.show_error = false;
+                    self.error_window.error_type = ErrorType::None;
                     self.error_window.error_message.clear();
 
+                    match self.error_window.error_type {
+                        ErrorType::StartStopError => {
                     // Clear data when button is clicked
                     self.measurement_window.reset();
                     self.communication.reset();
+                        }
+                        _ => (),
+                    }
                 }
             });
     }
