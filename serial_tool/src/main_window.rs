@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use eframe::{
-    egui::{self, Button, ComboBox, ScrollArea, Slider, TextEdit, Ui, Vec2},
+    egui::{self, Button, ComboBox, Id, ScrollArea, Slider, TextEdit, Ui, Vec2},
     App, CreationContext,
 };
 use egui_plot::{Legend, Line, Plot};
@@ -141,6 +141,8 @@ impl MainWindow {
                 "Start"
             };
 
+            self.conn_button_clicked = true;
+
             let conn_button = Button::new(text_in_button);
             if ui
                 .add_enabled(!self.selected_port.is_empty(), conn_button)
@@ -268,26 +270,34 @@ impl MainWindow {
             return;
         }
 
-        egui::Window::new("Error")
-            .collapsible(false)
-            .movable(false)
-            .resizable(false)
-            .show(ui.ctx(), |ui| {
-                ui.label(format!("❌ {}", self.error_window.error_message));
-                if ui.button("Ok").clicked() {
-                    self.error_window.error_type = ErrorType::None;
-                    self.error_window.error_message.clear();
+        let mut ok_button_clicked = false;
+        let modal = egui::Modal::new(Id::new("Error")).show(ui.ctx(), |ui| {
+            ui.heading("Error ❌");
+            ui.label(&self.error_window.error_message);
 
-                    match self.error_window.error_type {
-                        ErrorType::StartStopError => {
-                            // Clear data when button is clicked
-                            self.measurement_window.reset();
-                            self.communication.reset();
-                        }
-                        _ => (),
+            egui::Sides::new().show(
+                ui,
+                |_ui| {},
+                |ui| {
+                    if ui.button("Ok").clicked() {
+                        ok_button_clicked = true;
                     }
+                },
+            );
+        });
+
+        if modal.should_close() || ok_button_clicked {
+            self.error_window.error_type = ErrorType::None;
+            self.error_window.error_message.clear();
+
+            match self.error_window.error_type {
+                ErrorType::StartStopError => {
+                    self.measurement_window.reset();
+                    self.communication.reset();
                 }
-            });
+                _ => (),
+            }
+        }
     }
 
     fn send_motor_command(&mut self) {
