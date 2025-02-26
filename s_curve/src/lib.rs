@@ -117,7 +117,6 @@ impl SCurveInterpolator {
         self.target_data.dir = dir;
 
         // Use symmetric settings for min value and update target data struct
-        // TODO, verify the correctness of sign changing method
         self.target_data.dist += dir * dist;
         self.target_data.vel_start = vel_start;
         self.target_data.vel_end = vel_end;
@@ -169,6 +168,12 @@ impl SCurveInterpolator {
             self.intp_data.td[0],
             self.intp_data.h * dir
         );
+    }
+
+    pub fn stop(&mut self) {
+        self.target_data.vel_end = 0.0;
+        self.target_data.dist = 0.0;
+        self.intp_data.dist = 0.0;
     }
 
     fn calculate_dec_distance(&mut self) {
@@ -252,7 +257,6 @@ impl SCurveInterpolator {
         let acc_cur = self.intp_data.acc;
 
         // Check if we can continue using jMax to accelerate
-        // TODO, pay attension on the effect on dir coefficient
         let end_vel_cur = vel_cur - (acc_cur * acc_cur / (2.0 * jerk_min));
         if end_vel_cur < vel_max && acc_cur < acc_max {
             let jerk_temp = (acc_max - acc_cur) / t;
