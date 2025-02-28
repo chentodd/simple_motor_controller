@@ -173,7 +173,6 @@ impl SCurveInterpolator {
     pub fn stop(&mut self) {
         self.target_data.vel_end = 0.0;
         self.target_data.dist = 0.0;
-        self.intp_data.dist = 0.0;
     }
 
     fn calculate_dec_distance(&mut self) {
