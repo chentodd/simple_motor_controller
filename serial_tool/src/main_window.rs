@@ -13,6 +13,8 @@ use crate::{
     position_command_parser::CommandParser,
     profile_measurement::{MeasurementWindow, ProfileDataType},
     proto::motor_::{MotorRx, Operation},
+    view::error_window::ErrorWindow,
+    UiView, ViewEvent, ViewResponse,
 };
 
 pub struct MainWindow {
@@ -29,8 +31,8 @@ pub struct MainWindow {
     start_showing_profile_data: bool,
 }
 
-#[derive(Default, PartialEq, Eq)]
-enum ErrorType {
+#[derive(Default, PartialEq, Eq, Clone, Copy)]
+pub enum ErrorType {
     #[default]
     None,
     StartStopError,
@@ -88,8 +90,21 @@ impl App for MainWindow {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             self.display_profile_data_graph(ui);
-            self.display_error_window(ui);
+            self.error_window.show(ui);
         });
+
+        if let Some(view_response) = self.error_window.take_request() {
+            match view_response {
+                ViewResponse::ErrorDismissed(prev_error_type) => match prev_error_type {
+                    ErrorType::StartStopError => {
+                        self.measurement_window.reset();
+                        self.communication.reset();
+                    }
+                    _ => (),
+                },
+                _ => (),
+            }
+        }
 
         self.send_motor_command();
 
@@ -157,8 +172,10 @@ impl MainWindow {
                 };
 
                 if let Err(e) = start_stop_result {
-                    self.error_window.error_type = ErrorType::StartStopError;
-                    self.error_window.error_message = e.to_string();
+                    self.error_window.handle_event(ViewEvent::ErrorOccurred(
+                        ErrorType::StartStopError,
+                        e.to_string(),
+                    ));
                 }
             }
         });
@@ -217,8 +234,11 @@ impl MainWindow {
             match self.position_command_parser.parse(&self.position_command) {
                 Ok(_) => (),
                 Err(e) => {
-                    self.error_window.error_type = ErrorType::ParseCommandError;
-                    self.error_window.error_message = e.to_string();
+                    println!("Here: {}", e.to_string());
+                    self.error_window.handle_event(ViewEvent::ErrorOccurred(
+                        ErrorType::ParseCommandError,
+                        e.to_string(),
+                    ));
                 }
             }
         }
@@ -259,41 +279,6 @@ impl MainWindow {
         if let Some(data) = self.communication.get_tx_data() {
             if self.start_showing_profile_data {
                 self.measurement_window.update_measurement_window(data);
-            }
-        }
-    }
-
-    fn display_error_window(&mut self, ui: &mut Ui) {
-        if self.error_window.error_type == ErrorType::None {
-            return;
-        }
-
-        let mut ok_button_clicked = false;
-        let modal = egui::Modal::new(Id::new("Error")).show(ui.ctx(), |ui| {
-            ui.heading("Error ❌");
-            ui.label(&self.error_window.error_message);
-
-            egui::Sides::new().show(
-                ui,
-                |_ui| {},
-                |ui| {
-                    if ui.button("Ok").clicked() {
-                        ok_button_clicked = true;
-                    }
-                },
-            );
-        });
-
-        if modal.should_close() || ok_button_clicked {
-            self.error_window.error_type = ErrorType::None;
-            self.error_window.error_message.clear();
-
-            match self.error_window.error_type {
-                ErrorType::StartStopError => {
-                    self.measurement_window.reset();
-                    self.communication.reset();
-                }
-                _ => (),
             }
         }
     }
