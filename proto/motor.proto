@@ -8,6 +8,7 @@ enum Operation {
     IntpVel = 2;
     PidVel = 3;
     PidTune = 4;
+    Stop = 5;
 }
 
 message MotorRx {
