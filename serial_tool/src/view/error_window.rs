@@ -1,4 +1,4 @@
-use crate::{main_window::ErrorType, UiView, ViewEvent, ViewResponse};
+use crate::{main_window::ErrorType, UiView, ViewEvent, ViewRequest};
 use eframe::egui::{self, Id};
 
 #[derive(Default)]
@@ -38,15 +38,15 @@ impl UiView for ErrorWindow {
         });
     }
 
-    fn take_request(&mut self) -> Option<ViewResponse> {
+    fn take_request(&mut self) -> Option<ViewRequest> {
         if self.error_cleared {
             let prev_error_type = self.error_type;
 
             self.error_type = ErrorType::None;
             self.error_message.clear();
             self.error_cleared = false;
-            
-            Some(ViewResponse::ErrorDismissed(prev_error_type))
+
+            Some(ViewRequest::ErrorDismissed(prev_error_type))
         } else {
             None
         }
