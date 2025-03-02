@@ -15,16 +15,16 @@ pub mod proto {
 
 pub trait UiView {
     fn show(&mut self, ui: &mut Ui);
-    fn take_request(&mut self) -> Option<ViewResponse>;
+    fn take_request(&mut self) -> Option<ViewRequest>;
     fn handle_event(&mut self, event: ViewEvent);
 }
 
-pub enum ViewResponse {
-    ConnectionStart(String),
-    ConnectionStop,
+pub enum ViewRequest {
+    Connection(bool, String),
     ErrorDismissed(ErrorType),
 }
 
+#[derive(Clone)]
 pub enum ViewEvent {
     None,
     ErrorOccurred(ErrorType, String),
