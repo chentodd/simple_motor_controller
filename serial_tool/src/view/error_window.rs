@@ -2,7 +2,7 @@ use crate::{main_window::ErrorType, UiView, ViewEvent, ViewRequest};
 use eframe::egui::{self, Id};
 
 #[derive(Default)]
-pub struct ErrorWindow {
+pub(super) struct ErrorWindow {
     error_type: ErrorType,
     error_message: String,
     error_cleared: bool,
