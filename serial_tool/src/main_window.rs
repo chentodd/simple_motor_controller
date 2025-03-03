@@ -1,30 +1,35 @@
 use std::fmt::Display;
 
 use eframe::{
-    egui::{self, Button, ComboBox, Id, ScrollArea, Slider, TextEdit, Ui, Vec2},
+    egui::{self, Button, ComboBox, ScrollArea, Slider, TextEdit, Ui, Vec2},
     App, CreationContext,
 };
 use egui_plot::{Legend, Line, Plot};
 
-use log::error;
-
 use crate::{
-    communication::{Communication, Settings},
+    communication::Communication,
     position_command_parser::CommandParser,
     profile_measurement::{MeasurementWindow, ProfileDataType},
     proto::motor_::{MotorRx, Operation},
-    view::error_window::ErrorWindow,
-    UiView, ViewEvent, ViewResponse,
+    view::window_wrapper::{WindowType, WindowWrapper},
+    ViewEvent, ViewRequest,
 };
+use log::error;
+use strum::IntoEnumIterator;
 
 pub struct MainWindow {
     measurement_window: MeasurementWindow,
     communication: Communication,
     position_command_parser: CommandParser,
-    error_window: ErrorWindow,
-    selected_mode: Operation,
-    selected_port: String,
-    conn_button_clicked: bool,
+
+    // Windows
+    window_wrapper: WindowWrapper,
+
+    // Other members
+    connection_started: bool,
+    view_events: Vec<ViewEvent>,
+
+    mode_switch_window: ModeSwitchWindow,
     velocity_command: f32,
     position_command: String,
     profile_data_flags: [(ProfileDataType, bool); 6],
@@ -40,9 +45,9 @@ pub enum ErrorType {
 }
 
 #[derive(Default)]
-struct ErrorWindow {
-    error_type: ErrorType,
-    error_message: String,
+struct ModeSwitchWindow {
+    _curr_mode: Operation,
+    target_mode: Operation,
 }
 
 impl Display for Operation {
@@ -67,8 +72,9 @@ impl App for MainWindow {
         egui::TopBottomPanel::top("funtionality_panel").show(ctx, |ui| {
             ui.columns(2, |col| {
                 col[0].allocate_ui(Vec2::new(0.0, 0.0), |ui| {
-                    ui.heading("Connection setup");
-                    self.display_connection_panel(ui);
+                    self.window_wrapper
+                        .get_window(WindowType::ConnectionWindow)
+                        .show(ui);
                 });
 
                 col[1].allocate_ui(Vec2::new(0.0, 0.0), |ui| {
@@ -90,22 +96,13 @@ impl App for MainWindow {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             self.display_profile_data_graph(ui);
-            self.error_window.show(ui);
+            self.window_wrapper
+                .get_window(WindowType::ErrorWindow)
+                .show(ui);
         });
 
-        if let Some(view_response) = self.error_window.take_request() {
-            match view_response {
-                ViewResponse::ErrorDismissed(prev_error_type) => match prev_error_type {
-                    ErrorType::StartStopError => {
-                        self.measurement_window.reset();
-                        self.communication.reset();
-                    }
-                    _ => (),
-                },
-                _ => (),
-            }
-        }
-
+        self.handle_request();
+        self.send_event();
         self.send_motor_command();
 
         ctx.request_repaint();
@@ -118,10 +115,15 @@ impl MainWindow {
             measurement_window: MeasurementWindow::new(window_size),
             communication: Communication::new(),
             position_command_parser: CommandParser::new(),
-            error_window: ErrorWindow::default(),
-            selected_mode: Operation::IntpVel,
-            selected_port: "".to_string(),
-            conn_button_clicked: false,
+
+            // Windows
+            window_wrapper: WindowWrapper::new(),
+
+            // Other members
+            connection_started: false,
+            view_events: Vec::new(),
+
+            mode_switch_window: ModeSwitchWindow::default(),
             velocity_command: 0.0,
             position_command: "".to_string(),
             profile_data_flags: [
@@ -136,56 +138,12 @@ impl MainWindow {
         }
     }
 
-    fn display_connection_panel(&mut self, ui: &mut Ui) {
-        let port_names = Settings::get_port_names();
-
-        ui.horizontal_centered(|ui| {
-            let curr_selected = &mut self.selected_port.as_str();
-            ComboBox::new("ports", "ports")
-                .selected_text(*curr_selected)
-                .show_ui(ui, |ui| {
-                    for port in &port_names {
-                        ui.selectable_value(curr_selected, port, port);
-                    }
-                });
-            self.selected_port = curr_selected.to_owned();
-
-            let text_in_button = if self.conn_button_clicked {
-                "Stop"
-            } else {
-                "Start"
-            };
-
-            let conn_button = Button::new(text_in_button);
-            if ui
-                .add_enabled(!self.selected_port.is_empty(), conn_button)
-                .clicked()
-            {
-                self.conn_button_clicked = !self.conn_button_clicked;
-
-                let start_stop_result = match self.conn_button_clicked {
-                    true => self.communication.start(&self.selected_port),
-                    false => {
-                        self.measurement_window.reset();
-                        self.communication.stop()
-                    }
-                };
-
-                if let Err(e) = start_stop_result {
-                    self.error_window.handle_event(ViewEvent::ErrorOccurred(
-                        ErrorType::StartStopError,
-                        e.to_string(),
-                    ));
-                }
-            }
-        });
-    }
-
     fn display_mode_panel(&mut self, ui: &mut Ui) {
-        if !self.conn_button_clicked {
+        if !self.connection_started {
             ui.disable();
         }
-        let curr_selected = &mut self.selected_mode;
+
+        let curr_selected = &mut self.mode_switch_window.target_mode;
         ComboBox::new("control_mods", "control modes")
             .selected_text(format!("{}", curr_selected))
             .show_ui(ui, |ui| {
@@ -193,15 +151,15 @@ impl MainWindow {
                 ui.selectable_value(curr_selected, Operation::IntpVel, "IntpVel");
             });
 
-        self.selected_mode = *curr_selected;
+        self.mode_switch_window.target_mode = *curr_selected;
     }
 
     fn display_velocity_command_panel(&mut self, ui: &mut Ui) {
-        if self.selected_mode != Operation::IntpVel {
+        if self.mode_switch_window.target_mode != Operation::IntpVel {
             return;
         }
 
-        if !self.conn_button_clicked {
+        if !self.connection_started {
             ui.disable();
         }
         ui.add(
@@ -211,11 +169,11 @@ impl MainWindow {
     }
 
     fn display_position_command_panel(&mut self, ui: &mut Ui) {
-        if self.selected_mode != Operation::IntpPos {
+        if self.mode_switch_window.target_mode != Operation::IntpPos {
             return;
         }
 
-        if !self.conn_button_clicked {
+        if !self.connection_started {
             ui.disable();
         }
 
@@ -234,8 +192,7 @@ impl MainWindow {
             match self.position_command_parser.parse(&self.position_command) {
                 Ok(_) => (),
                 Err(e) => {
-                    println!("Here: {}", e.to_string());
-                    self.error_window.handle_event(ViewEvent::ErrorOccurred(
+                    self.view_events.push(ViewEvent::ErrorOccurred(
                         ErrorType::ParseCommandError,
                         e.to_string(),
                     ));
@@ -245,7 +202,7 @@ impl MainWindow {
     }
 
     fn display_profile_control_panel(&mut self, ui: &mut Ui) {
-        if !self.conn_button_clicked {
+        if !self.connection_started {
             ui.disable();
         }
 
@@ -286,7 +243,7 @@ impl MainWindow {
     fn send_motor_command(&mut self) {
         let mut motor_commads = Vec::new();
 
-        match self.selected_mode {
+        match self.mode_switch_window.target_mode {
             Operation::IntpVel => {
                 let mut vel_cmd = MotorRx::default();
                 vel_cmd.set_target_vel(self.velocity_command);
@@ -308,6 +265,50 @@ impl MainWindow {
 
         for motor_cmd in motor_commads {
             self.communication.set_rx_data(motor_cmd);
+        }
+    }
+
+    fn handle_request(&mut self) {
+        for window_type in WindowType::iter() {
+            if let Some(request) = self.window_wrapper.get_window(window_type).take_request() {
+                match request {
+                    ViewRequest::ErrorDismissed(prev_error_type) => match prev_error_type {
+                        ErrorType::StartStopError => {
+                            self.measurement_window.reset();
+                            self.communication.reset();
+                        }
+                        _ => (),
+                    },
+                    ViewRequest::Connection(start, port_name) => {
+                        let start_stop_result = match start {
+                            true => self.communication.start(&port_name),
+                            false => {
+                                self.measurement_window.reset();
+                                self.communication.stop()
+                            }
+                        };
+
+                        if let Err(e) = start_stop_result {
+                            self.view_events.push(ViewEvent::ErrorOccurred(
+                                ErrorType::StartStopError,
+                                e.to_string(),
+                            ));
+                        } else {
+                            self.connection_started = start;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn send_event(&mut self) {
+        while let Some(event) = self.view_events.pop() {
+            for window_type in WindowType::iter() {
+                self.window_wrapper
+                    .get_window(window_type)
+                    .handle_event(event.clone());
+            }
         }
     }
 }
