@@ -49,7 +49,10 @@ impl UiView for ConnectionWindow {
 
     fn take_request(&mut self) -> Option<ViewRequest> {
         if self.start {
-            Some(ViewRequest::Connection(self.start, self.selected_port.clone()))
+            Some(ViewRequest::Connection(
+                self.start,
+                self.selected_port.clone(),
+            ))
         } else {
             None
         }
