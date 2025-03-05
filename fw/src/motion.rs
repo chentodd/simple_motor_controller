@@ -19,7 +19,7 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1
         Self {
             motor,
             s_curve_intper,
-            operation: Operation::default(),
+            operation: Operation::IntpVel,
         }
     }
 
