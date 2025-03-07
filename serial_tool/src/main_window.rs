@@ -73,12 +73,6 @@ impl Display for Operation {
 }
 
 impl App for MainWindow {
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        if let Err(_e) = self.communication.stop() {
-            error!("on_exit(), failed, {_e}");
-        }
-    }
-
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("funtionality_panel").show(ctx, |ui| {
             ui.columns(2, |col| {
@@ -116,8 +110,12 @@ impl App for MainWindow {
                 .show(ui);
         });
 
-        self.handle_request();
-        self.send_event();
+        self.handle_close_event(ctx);
+
+        let motor_data_recv = self.collect_motor_data();
+        self.handle_ui_request();
+        self.send_ui_event();
+        self.process_mode_switch(motor_data_recv.as_ref());
         self.send_motor_command();
 
         ctx.request_repaint();
@@ -272,7 +270,7 @@ impl MainWindow {
         }
     }
 
-    fn handle_request(&mut self) {
+    fn handle_ui_request(&mut self) {
         for window_type in WindowType::iter() {
             if let Some(request) = self.window_wrapper.get_window(window_type).take_request() {
                 match request {
@@ -310,12 +308,72 @@ impl MainWindow {
         }
     }
 
-    fn send_event(&mut self) {
+    fn send_ui_event(&mut self) {
         while let Some(event) = self.view_events.pop() {
             for window_type in WindowType::iter() {
                 self.window_wrapper
                     .get_window(window_type)
                     .handle_event(event.clone());
+            }
+        }
+    }
+
+    fn collect_motor_data(&mut self) -> Option<MotorTx> {
+        if let Some(data_recv) = self.communication.get_tx_data() {
+            let motor_data = &data_recv.left_motor;
+            self.view_events
+                .push(ViewEvent::ControlModeUpdate(motor_data.operation_display));
+            Some(motor_data.clone())
+        } else {
+            None
+        }
+    }
+
+    fn process_mode_switch(&mut self, motor_data_recv: Option<&MotorTx>) {
+        if let Some(data) = motor_data_recv {
+            if let Some(req_mode) = self.requested_mode_set.last() {
+                let req_mode = Operation::from(*req_mode);
+                match self.mode_switch_state {
+                    ModeSwitchState::Idle => {
+                        if req_mode != data.operation_display {
+                            self.mode_switch_state = ModeSwitchState::Start;
+                        }
+                    }
+                    ModeSwitchState::Start => {
+                        self.output_mode = req_mode;
+                        self.mode_switch_state = ModeSwitchState::Wait;
+                    }
+                    ModeSwitchState::Wait => {
+                        if req_mode == data.operation_display {
+                            self.requested_mode_set.pop_last();
+                            self.mode_switch_state = ModeSwitchState::Idle;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn handle_close_event(&mut self, ctx: &egui::Context) {
+        if self.close_event_accepted && self.mode_switch_state == ModeSwitchState::Idle {
+            if let Err(e) = self.communication.stop() {
+                error!("Fail to stop `communication` {e}");
+            }
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+
+        // Handle close event when user clicks 'x' button
+        if ctx.input(|i| i.viewport().close_requested()) {
+            if self.connection_started {
+                // Need to use `Stop` command when connection is started
+                self.close_event_accepted = true;
+                self.view_events
+                    .push(ViewEvent::InternalControlModeRequest((
+                        Operation::Stop,
+                        "Exit".to_string(),
+                    )));
+
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             }
         }
     }
