@@ -1,7 +1,8 @@
+use std::collections::BTreeSet;
 use std::fmt::Display;
 
 use eframe::{
-    egui::{self, Button, ComboBox, ScrollArea, Slider, TextEdit, Ui, Vec2},
+    egui::{self, Button, ScrollArea, Slider, TextEdit, Ui, Vec2},
     App, CreationContext,
 };
 use egui_plot::{Legend, Line, Plot};
@@ -10,12 +11,20 @@ use crate::{
     communication::Communication,
     position_command_parser::CommandParser,
     profile_measurement::{MeasurementWindow, ProfileDataType},
-    proto::motor_::{MotorRx, Operation},
+    proto::motor_::{MotorRx, MotorTx, Operation},
     view::window_wrapper::{WindowType, WindowWrapper},
     ViewEvent, ViewRequest,
 };
 use log::error;
 use strum::IntoEnumIterator;
+
+#[derive(Default, PartialEq, Eq)]
+enum ModeSwitchState {
+    #[default]
+    Idle,
+    Start,
+    Wait,
+}
 
 pub struct MainWindow {
     measurement_window: MeasurementWindow,
@@ -29,7 +38,15 @@ pub struct MainWindow {
     connection_started: bool,
     view_events: Vec<ViewEvent>,
 
-    mode_switch_window: ModeSwitchWindow,
+    // Use ordered set to maintain `Operation`(which is `i32`) in `proto`
+    // message. And the commands will be processed in reverse order
+    // (from larger one to smaller one)
+    requested_mode_set: BTreeSet<i32>,
+    output_mode: Operation,
+    mode_switch_state: ModeSwitchState,
+
+    close_event_accepted: bool,
+
     velocity_command: f32,
     position_command: String,
     profile_data_flags: [(ProfileDataType, bool); 6],
@@ -42,12 +59,6 @@ pub enum ErrorType {
     None,
     StartStopError,
     ParseCommandError,
-}
-
-#[derive(Default)]
-struct ModeSwitchWindow {
-    _curr_mode: Operation,
-    target_mode: Operation,
 }
 
 impl Display for Operation {
@@ -78,8 +89,12 @@ impl App for MainWindow {
                 });
 
                 col[1].allocate_ui(Vec2::new(0.0, 0.0), |ui| {
-                    ui.heading("Mode setup");
-                    self.display_mode_panel(ui);
+                    if !self.connection_started {
+                        ui.disable();
+                    }
+                    self.window_wrapper
+                        .get_window(WindowType::ControlModeWindow)
+                        .show(ui);
                 });
             });
         });
@@ -123,7 +138,12 @@ impl MainWindow {
             connection_started: false,
             view_events: Vec::new(),
 
-            mode_switch_window: ModeSwitchWindow::default(),
+            requested_mode_set: BTreeSet::new(),
+            output_mode: Operation::default(),
+            mode_switch_state: ModeSwitchState::default(),
+
+            close_event_accepted: false,
+
             velocity_command: 0.0,
             position_command: "".to_string(),
             profile_data_flags: [
@@ -138,26 +158,10 @@ impl MainWindow {
         }
     }
 
-    fn display_mode_panel(&mut self, ui: &mut Ui) {
-        if !self.connection_started {
-            ui.disable();
-        }
-
-        let curr_selected = &mut self.mode_switch_window.target_mode;
-        ComboBox::new("control_mods", "control modes")
-            .selected_text(format!("{}", curr_selected))
-            .show_ui(ui, |ui| {
-                ui.selectable_value(curr_selected, Operation::IntpPos, "IntpPos");
-                ui.selectable_value(curr_selected, Operation::IntpVel, "IntpVel");
-            });
-
-        self.mode_switch_window.target_mode = *curr_selected;
-    }
-
     fn display_velocity_command_panel(&mut self, ui: &mut Ui) {
-        if self.mode_switch_window.target_mode != Operation::IntpVel {
-            return;
-        }
+        // if self.mode_switch_window.target_mode != Operation::IntpVel {
+        //     return;
+        // }
 
         if !self.connection_started {
             ui.disable();
@@ -169,9 +173,9 @@ impl MainWindow {
     }
 
     fn display_position_command_panel(&mut self, ui: &mut Ui) {
-        if self.mode_switch_window.target_mode != Operation::IntpPos {
-            return;
-        }
+        // if self.mode_switch_window.target_mode != Operation::IntpPos {
+        //     return;
+        // }
 
         if !self.connection_started {
             ui.disable();
@@ -243,7 +247,7 @@ impl MainWindow {
     fn send_motor_command(&mut self) {
         let mut motor_commads = Vec::new();
 
-        match self.mode_switch_window.target_mode {
+        match self.output_mode {
             Operation::IntpVel => {
                 let mut vel_cmd = MotorRx::default();
                 vel_cmd.set_target_vel(self.velocity_command);
@@ -296,6 +300,10 @@ impl MainWindow {
                         } else {
                             self.connection_started = start;
                         }
+                    }
+                    ViewRequest::ModeSwitch(target_mode) => {
+                        self.requested_mode_set.insert(target_mode.0);
+                        self.requested_mode_set.insert(Operation::Stop.0);
                     }
                 }
             }
