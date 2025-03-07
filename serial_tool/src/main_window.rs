@@ -64,7 +64,6 @@ pub enum ErrorType {
 impl Display for Operation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match Operation::from(self.0) {
-            Operation::Unspecified => write!(f, "Unspecified"),
             Operation::IntpPos => write!(f, "IntpPos"),
             Operation::IntpVel => write!(f, "IntpVel"),
             _ => Ok(()),
