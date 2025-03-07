@@ -5,9 +5,12 @@ use crate::{
 use std::collections::HashMap;
 use strum_macros::EnumIter;
 
+use super::control_mode_window::ControlModeWindow;
+
 #[derive(PartialEq, Hash, Eq, Clone, Copy, EnumIter)]
 pub enum WindowType {
     ConnectionWindow,
+    ControlModeWindow,
     ErrorWindow,
 }
 
@@ -21,6 +24,10 @@ impl WindowWrapper {
         window_map.insert(
             WindowType::ConnectionWindow,
             Box::new(ConnectionWindow::new()),
+        );
+        window_map.insert(
+            WindowType::ControlModeWindow,
+            Box::new(ControlModeWindow::new()),
         );
         window_map.insert(WindowType::ErrorWindow, Box::new(ErrorWindow::new()));
 
