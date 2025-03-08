@@ -63,8 +63,11 @@ impl UiView for ConnectionWindow {
         }
     }
 
-    fn handle_event(&mut self, _event: ViewEvent) {
-        // Do nothing
+    fn handle_event(&mut self, event: ViewEvent) {
+        match event {
+            ViewEvent::ConnectionStatusUpdate(x) => self.curr_flag = x,
+            _ => (),
+        }
     }
 
     fn reset(&mut self) {

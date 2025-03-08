@@ -22,11 +22,13 @@ pub trait UiView {
 }
 
 pub enum ViewRequest {
-    // The start(true)/stop(false), and port name from connection window
-    Connection(bool, String),
-    // The the error type that user wants to clear from error window
+    // A request that wants to start connection with a port name from connection window
+    StartConnection(String),
+    // A request that wants to stop connection from connection window
+    StopConnection,
+    // A request that wants to clear error from error window
     ErrorDismissed(ErrorType),
-    // The target operation mode from control mode window
+    // A request that wants to change to target mode from control mode window
     ModeSwitch(Operation),
 }
 
@@ -35,6 +37,8 @@ pub enum ViewEvent {
     None,
     // Send error type and error message to error window
     ErrorOccurred(ErrorType, String),
+    // Send current connection status to connection windo
+    ConnectionStatusUpdate(bool),
     // Send current operation mode to control mode window
     ControlModeUpdate(Operation),
     // Send internal operation mode request to control mode window and update
