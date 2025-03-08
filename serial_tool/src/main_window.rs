@@ -1,5 +1,6 @@
-use std::collections::BTreeSet;
 use std::fmt::Display;
+use std::time::Duration;
+use std::{collections::BTreeMap, time::Instant};
 
 use eframe::{
     egui::{self, Button, ScrollArea, Slider, TextEdit, Ui, Vec2},
@@ -23,7 +24,7 @@ enum ModeSwitchState {
     #[default]
     Idle,
     Start,
-    Wait,
+    Wait(Instant),
 }
 
 pub struct MainWindow {
@@ -38,13 +39,12 @@ pub struct MainWindow {
     connection_started: bool,
     view_events: Vec<ViewEvent>,
 
-    // Use ordered set to maintain `Operation`(which is `i32`) in `proto`
+    // Use ordered map to maintain `Operation`(which is `i32`) in `proto`
     // message. And the commands will be processed in reverse order
     // (from larger one to smaller one)
-    requested_mode_set: BTreeSet<i32>,
+    requested_mode_map: BTreeMap<i32, ModeSwitchState>,
+    requested_mode_finished: bool,
     output_mode: Operation,
-    mode_switch_state: ModeSwitchState,
-
     close_event_accepted: bool,
 
     velocity_command: f32,
@@ -57,7 +57,9 @@ pub struct MainWindow {
 pub enum ErrorType {
     #[default]
     None,
-    StartStopError,
+    StartError,
+    StopError,
+    ModeSwitchTimeout,
     ParseCommandError,
 }
 
@@ -112,7 +114,7 @@ impl App for MainWindow {
         self.handle_close_event(ctx);
 
         let motor_data_recv = self.collect_motor_data();
-        self.handle_ui_request();
+        self.handle_ui_request(motor_data_recv.as_ref());
         self.send_ui_event();
         self.process_mode_switch(motor_data_recv.as_ref());
         self.send_motor_command();
@@ -135,10 +137,10 @@ impl MainWindow {
             connection_started: false,
             view_events: Vec::new(),
 
-            requested_mode_set: BTreeSet::new(),
-            output_mode: Operation::default(),
-            mode_switch_state: ModeSwitchState::default(),
+            requested_mode_map: BTreeMap::new(),
+            requested_mode_finished: false,
 
+            output_mode: Operation::default(),
             close_event_accepted: false,
 
             velocity_command: 0.0,
@@ -269,39 +271,83 @@ impl MainWindow {
         }
     }
 
-    fn handle_ui_request(&mut self) {
+    fn handle_ui_request(&mut self, motor_data_recv: Option<&MotorTx>) {
+        // Handle error first, because we need to reset UI if error appears
         for window_type in WindowType::iter() {
             if let Some(request) = self.window_wrapper.get_window(window_type).take_request() {
                 match request {
                     ViewRequest::ErrorDismissed(prev_error_type) => match prev_error_type {
-                        ErrorType::StartStopError => {
-                            self.measurement_window.reset();
+                        ErrorType::StartError | ErrorType::StopError => {
                             self.communication.reset();
+                            self.measurement_window.reset();
+
+                            for window_type in WindowType::iter() {
+                                self.window_wrapper.get_window(window_type).reset();
+                            }
+                        }
+                        ErrorType::ModeSwitchTimeout => {
+                            self.window_wrapper.get_window(WindowType::ControlModeWindow).reset();
                         }
                         _ => (),
                     },
-                    ViewRequest::Connection(start, port_name) => {
-                        let start_stop_result = match start {
-                            true => self.communication.start(&port_name),
-                            false => {
-                                self.measurement_window.reset();
-                                self.communication.stop()
-                            }
-                        };
+                    _ => (),
+                }
+            }
+        }
 
-                        if let Err(e) = start_stop_result {
+        // Handle other requests and create view events is needed
+        for window_type in WindowType::iter() {
+            if let Some(request) = self.window_wrapper.get_window(window_type).take_request() {
+                match request {
+                    ViewRequest::StartConnection(port_name) => {
+                        if let Err(e) = self.communication.start(&port_name) {
                             self.view_events.push(ViewEvent::ErrorOccurred(
-                                ErrorType::StartStopError,
+                                ErrorType::StartError,
                                 e.to_string(),
                             ));
                         } else {
-                            self.connection_started = start;
+                            self.connection_started = true;
+                            self.view_events
+                                .push(ViewEvent::ConnectionStatusUpdate(self.connection_started));
                         }
                     }
-                    ViewRequest::ModeSwitch(target_mode) => {
-                        self.requested_mode_set.insert(target_mode.0);
-                        self.requested_mode_set.insert(Operation::Stop.0);
+                    ViewRequest::StopConnection if self.requested_mode_finished => {
+                        if let Err(e) = self.communication.stop() {
+                            self.view_events.push(ViewEvent::ErrorOccurred(
+                                ErrorType::StartError,
+                                e.to_string(),
+                            ));
+                        } else {
+                            self.connection_started = false;
+                            self.view_events
+                                .push(ViewEvent::ConnectionStatusUpdate(self.connection_started));
+                        }
                     }
+                    ViewRequest::StopConnection if !self.requested_mode_finished => {
+                        if let Some(data) = motor_data_recv {
+                            // When user asks to stop connection, we will do:
+                            // 1. Send stop mode to the board, make sure motor is not moving
+                            // 2. Send current operation mode, make sure motor stays in current operation mode
+                            self.requested_mode_map
+                                .entry(data.operation_display.0)
+                                .or_insert(ModeSwitchState::Idle);
+                            self.requested_mode_map
+                                .entry(Operation::Stop.0)
+                                .or_insert(ModeSwitchState::Idle);
+                        }
+                    }
+                    ViewRequest::ModeSwitch(target_mode) if !self.requested_mode_finished => {
+                        // When user asks to stop connection, we will do:
+                        // 1. Send stop mode to the board, make sure motor is not moving
+                        // 2. Send target operation mode
+                        self.requested_mode_map
+                            .entry(target_mode.0)
+                            .or_insert(ModeSwitchState::Idle);
+                        self.requested_mode_map
+                            .entry(Operation::Stop.0)
+                            .or_insert(ModeSwitchState::Idle);
+                    }
+                    _ => (),
                 }
             }
         }
@@ -329,23 +375,52 @@ impl MainWindow {
     }
 
     fn process_mode_switch(&mut self, motor_data_recv: Option<&MotorTx>) {
+        // Check items in request mode map, directly return if all the modes are finished
+        self.requested_mode_finished = false;
+        self.requested_mode_map.values().for_each(|x| {
+            if *x != ModeSwitchState::Idle {
+                self.requested_mode_finished = false;
+            }
+        });
+
+        if self.requested_mode_finished {
+            self.requested_mode_map.clear();
+            return;
+        }
+
+        // Process mode switch if we have value motor status
         if let Some(data) = motor_data_recv {
-            if let Some(req_mode) = self.requested_mode_set.last() {
-                let req_mode = Operation::from(*req_mode);
-                match self.mode_switch_state {
+            for (request_mode, switch_state) in self.requested_mode_map.iter_mut().rev() {
+                if *switch_state == ModeSwitchState::Idle {
+                    continue;
+                }
+
+                let request_mode = Operation::from(*request_mode);
+                match switch_state {
                     ModeSwitchState::Idle => {
-                        if req_mode != data.operation_display {
-                            self.mode_switch_state = ModeSwitchState::Start;
+                        if request_mode != data.operation_display {
+                            *switch_state = ModeSwitchState::Start;
                         }
                     }
                     ModeSwitchState::Start => {
-                        self.output_mode = req_mode;
-                        self.mode_switch_state = ModeSwitchState::Wait;
+                        self.output_mode = request_mode;
+                        *switch_state = ModeSwitchState::Wait(Instant::now());
                     }
-                    ModeSwitchState::Wait => {
-                        if req_mode == data.operation_display {
-                            self.requested_mode_set.pop_last();
-                            self.mode_switch_state = ModeSwitchState::Idle;
+                    ModeSwitchState::Wait(prev) => {
+                        // TODO, replace hard-coded time limit
+                        let now = Instant::now();
+                        if now.duration_since(*prev) >= Duration::from_secs(6) {
+                            // Timeout error, clear the map and create error event
+                            self.view_events.push(ViewEvent::ErrorOccurred(
+                                ErrorType::ModeSwitchTimeout,
+                                "Fail to switch mode in given time".to_string(),
+                            ));
+                            self.requested_mode_map.clear();
+                            return;
+                        }
+
+                        if request_mode == data.operation_display {
+                            *switch_state = ModeSwitchState::Idle;
                         }
                     }
                 }
