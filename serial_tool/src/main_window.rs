@@ -439,7 +439,9 @@ impl MainWindow {
         // Handle close event when user clicks 'x' button
         if ctx.input(|i| i.viewport().close_requested()) {
             if self.connection_started {
-                // Need to use `Stop` command when connection is started
+                // When connection is started and user wants to close UI, an internal request is used.
+                // This internal request will update `target_mode` in `control_mode_window`, create
+                // an effect that user wants to switch to `Stop` mode.
                 self.close_event_accepted = true;
                 self.view_events
                     .push(ViewEvent::InternalControlModeRequest((
