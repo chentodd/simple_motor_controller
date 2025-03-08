@@ -53,14 +53,17 @@ impl UiView for ConnectionWindow {
     }
 
     fn take_request(&mut self) -> Option<ViewRequest> {
-        if self.start {
-            Some(ViewRequest::Connection(
-                self.start,
-                self.selected_port.clone(),
-            ))
+        let result = if self.target_flag && !self.curr_flag {
+            // Rising edge, user asks to start connection
+            Some(ViewRequest::StartConnection(self.selected_port.clone()))
+        } else if !self.target_flag && self.curr_flag {
+            // Falling edge, user asks to stop connection
+            Some(ViewRequest::StopConnection)
         } else {
             None
-        }
+        };
+
+        result
     }
 
     fn handle_event(&mut self, event: ViewEvent) {
