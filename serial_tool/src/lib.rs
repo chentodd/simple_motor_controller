@@ -18,6 +18,7 @@ pub trait UiView {
     fn show(&mut self, ui: &mut Ui);
     fn take_request(&mut self) -> Option<ViewRequest>;
     fn handle_event(&mut self, event: ViewEvent);
+    fn reset(&mut self);
 }
 
 pub enum ViewRequest {

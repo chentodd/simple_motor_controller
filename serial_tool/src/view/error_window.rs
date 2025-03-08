@@ -61,4 +61,8 @@ impl UiView for ErrorWindow {
             _ => (),
         }
     }
+
+    fn reset(&mut self) {
+        // Do nothing
+    }
 }

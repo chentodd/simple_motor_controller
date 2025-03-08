@@ -93,4 +93,15 @@ impl UiView for ControlModeWindow {
             _ => (),
         }
     }
+
+    fn reset(&mut self) {
+        // Fail to switch control mode, reset target_control_mode, Ex: if user fails to
+        // switch to velocity mode:
+        // 1. target_control_mode = velocity, target
+        // 2. curr_control_mode = position, current
+        //
+        // target_control_mode will be set to curr_control_mode when error occurred,
+        // so user can try to switch control mode again again
+        self.target_control_mode = self.curr_control_mode;
+    }
 }

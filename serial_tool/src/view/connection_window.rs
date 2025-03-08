@@ -5,7 +5,8 @@ use serial_enumerator::get_serial_list;
 #[derive(Default)]
 pub(super) struct ConnectionWindow {
     selected_port: String,
-    start: bool,
+    curr_flag: bool,
+    target_flag: bool,
 }
 
 impl ConnectionWindow {
@@ -35,14 +36,18 @@ impl UiView for ConnectionWindow {
                 });
             self.selected_port = curr_selected.to_owned();
 
-            let text_in_button = if self.start { "Stop" } else { "Start" };
-
+            let text_in_button = if self.curr_flag {
+                "Stop"
+            } else {
+                "Start"
+            };
             let conn_button = Button::new(text_in_button);
+
             if ui
                 .add_enabled(!self.selected_port.is_empty(), conn_button)
                 .clicked()
             {
-                self.start = !self.start;
+                self.target_flag = !self.curr_flag;
             }
         });
     }
@@ -60,5 +65,15 @@ impl UiView for ConnectionWindow {
 
     fn handle_event(&mut self, _event: ViewEvent) {
         // Do nothing
+    }
+
+    fn reset(&mut self) {
+        // Start or stop fails, reset flags, Ex: if user encounters stop failure,
+        // 1. target_flag = true, target
+        // 2. curr_flag = false, current
+        //
+        // target_flag will be set to curr_flag when error occurred, so user can 
+        // try to start again
+        self.target_flag = self.curr_flag
     }
 }
