@@ -36,11 +36,7 @@ impl UiView for ConnectionWindow {
                 });
             self.selected_port = curr_selected.to_owned();
 
-            let text_in_button = if self.curr_flag {
-                "Stop"
-            } else {
-                "Start"
-            };
+            let text_in_button = if self.curr_flag { "Stop" } else { "Start" };
             let conn_button = Button::new(text_in_button);
 
             if ui
@@ -78,7 +74,7 @@ impl UiView for ConnectionWindow {
         // 1. target_flag = true, target
         // 2. curr_flag = false, current
         //
-        // target_flag will be set to curr_flag when error occurred, so user can 
+        // target_flag will be set to curr_flag when error occurred, so user can
         // try to start again
         self.target_flag = self.curr_flag
     }
