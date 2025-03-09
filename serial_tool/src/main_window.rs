@@ -399,7 +399,7 @@ impl MainWindow {
     }
 
     fn handle_close_event(&mut self, ctx: &egui::Context) {
-        if self.close_event_accepted && self.mode_switch_state == ModeSwitchState::Idle {
+        if self.close_event_accepted && self.requested_mode_finished {
             if let Err(e) = self.communication.stop() {
                 error!("Fail to stop `communication` {e}");
             }
