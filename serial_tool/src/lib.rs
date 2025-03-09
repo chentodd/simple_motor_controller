@@ -8,6 +8,8 @@ use eframe::egui::Ui;
 use main_window::ErrorType;
 use proto::motor_::Operation;
 
+const DEFAULT_CONTROL_MODE: Operation = Operation::IntpVel;
+
 pub mod proto {
     #![allow(clippy::all)]
     #![allow(nonstandard_style, unused, irrefutable_let_patterns)]

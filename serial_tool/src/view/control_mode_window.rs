@@ -1,4 +1,4 @@
-use crate::{proto::motor_::Operation, UiView, ViewEvent, ViewRequest};
+use crate::{proto::motor_::Operation, UiView, ViewEvent, ViewRequest, DEFAULT_CONTROL_MODE};
 use eframe::egui::{self, ComboBox, Id, ProgressBar, Ui, Widget};
 
 #[derive(Default)]
@@ -12,8 +12,8 @@ pub(super) struct ControlModeWindow {
 impl ControlModeWindow {
     pub fn new() -> Self {
         Self {
-            curr_control_mode: Operation::IntpVel,
-            target_control_mode: Operation::IntpVel,
+            curr_control_mode: DEFAULT_CONTROL_MODE,
+            target_control_mode: DEFAULT_CONTROL_MODE,
             ..Default::default()
         }
     }
