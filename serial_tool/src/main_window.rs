@@ -3,7 +3,7 @@ use std::time::Duration;
 use std::{collections::BTreeMap, time::Instant};
 
 use eframe::{
-    egui::{self, Button, ScrollArea, Slider, TextEdit, Ui, Vec2},
+    egui::{self, Ui, Vec2},
     App, CreationContext,
 };
 use egui_plot::{Legend, Line, Plot};
@@ -46,9 +46,8 @@ pub struct MainWindow {
     requested_mode_finished: bool,
     output_mode: Operation,
     close_event_accepted: bool,
-
     velocity_command: f32,
-    position_command: String,
+
     profile_data_flags: [(ProfileDataType, bool); 6],
     start_showing_profile_data: bool,
 }
@@ -95,9 +94,12 @@ impl App for MainWindow {
         });
 
         egui::TopBottomPanel::top("command_panel").show(ctx, |ui: &mut Ui| {
-            ui.heading("Command setup");
-            self.display_velocity_command_panel(ui);
-            self.display_position_command_panel(ui);
+            if !self.connection_started {
+                ui.disable();
+            }
+            self.window_wrapper
+                .get_window(WindowType::CommandWindow)
+                .show(ui);
         });
 
         egui::SidePanel::right("profile_data_control_panel").show(ctx, |ui| {
@@ -144,7 +146,7 @@ impl MainWindow {
             close_event_accepted: false,
 
             velocity_command: 0.0,
-            position_command: "".to_string(),
+
             profile_data_flags: [
                 (ProfileDataType::IntpPos, false),
                 (ProfileDataType::IntpVel, false),
@@ -154,53 +156,6 @@ impl MainWindow {
                 (ProfileDataType::ActVel, false),
             ],
             start_showing_profile_data: false,
-        }
-    }
-
-    fn display_velocity_command_panel(&mut self, ui: &mut Ui) {
-        // if self.mode_switch_window.target_mode != Operation::IntpVel {
-        //     return;
-        // }
-
-        if !self.connection_started {
-            ui.disable();
-        }
-        ui.add(
-            Slider::new(&mut self.velocity_command, -3000.0..=3000.0)
-                .text("motor velocity cmd (rpm)"),
-        );
-    }
-
-    fn display_position_command_panel(&mut self, ui: &mut Ui) {
-        // if self.mode_switch_window.target_mode != Operation::IntpPos {
-        //     return;
-        // }
-
-        if !self.connection_started {
-            ui.disable();
-        }
-
-        ScrollArea::vertical().max_height(64.0).show(ui, |ui| {
-            ui.add_sized(
-                ui.available_size(),
-                TextEdit::multiline(&mut self.position_command),
-            );
-        });
-
-        let send_button = Button::new("Send");
-        if ui
-            .add_enabled(!self.position_command.is_empty(), send_button)
-            .clicked()
-        {
-            match self.position_command_parser.parse(&self.position_command) {
-                Ok(_) => (),
-                Err(e) => {
-                    self.view_events.push(ViewEvent::ErrorOccurred(
-                        ErrorType::ParseCommandError,
-                        e.to_string(),
-                    ));
-                }
-            }
         }
     }
 
@@ -346,6 +301,19 @@ impl MainWindow {
                         self.requested_mode_map
                             .entry(Operation::Stop.0)
                             .or_insert(ModeSwitchState::Idle);
+                    }
+                    ViewRequest::VelocityCommand(cmd) => {
+                        self.velocity_command = cmd;
+                    }
+                    ViewRequest::PositionCommand((cmd, ready)) => {
+                        if ready {
+                            if let Err(e) = self.position_command_parser.parse(&cmd) {
+                                self.view_events.push(ViewEvent::ErrorOccurred(
+                                    ErrorType::ParseCommandError,
+                                    e.to_string(),
+                                ));
+                            }
+                        }
                     }
                     _ => (),
                 }
