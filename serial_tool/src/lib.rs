@@ -32,6 +32,10 @@ pub enum ViewRequest {
     ErrorDismissed(ErrorType),
     // A request that wants to change to target mode from control mode window
     ModeSwitch(Operation),
+    // A request that wants to control velocity from command window
+    VelocityCommand(f32),
+    // A request that wants to control position from command window
+    PositionCommand((String, bool)),
 }
 
 #[derive(Clone)]
