@@ -1,16 +1,18 @@
 use crate::{
-    view::{connection_window::ConnectionWindow, error_window::ErrorWindow},
+    view::{
+        command_window::CommandWindow, connection_window::ConnectionWindow,
+        control_mode_window::ControlModeWindow, error_window::ErrorWindow,
+    },
     UiView,
 };
 use std::collections::HashMap;
 use strum_macros::EnumIter;
 
-use super::control_mode_window::ControlModeWindow;
-
-#[derive(PartialEq, Hash, Eq, Clone, Copy, EnumIter)]
+#[derive(Debug, PartialEq, Hash, Eq, Clone, Copy, EnumIter)]
 pub enum WindowType {
     ConnectionWindow,
     ControlModeWindow,
+    CommandWindow,
     ErrorWindow,
 }
 
@@ -29,6 +31,7 @@ impl WindowWrapper {
             WindowType::ControlModeWindow,
             Box::new(ControlModeWindow::new()),
         );
+        window_map.insert(WindowType::CommandWindow, Box::new(CommandWindow::new()));
         window_map.insert(WindowType::ErrorWindow, Box::new(ErrorWindow::new()));
 
         Self { window_map }
