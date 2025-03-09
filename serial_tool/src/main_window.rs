@@ -241,7 +241,9 @@ impl MainWindow {
                             }
                         }
                         ErrorType::ModeSwitchTimeout => {
-                            self.window_wrapper.get_window(WindowType::ControlModeWindow).reset();
+                            self.window_wrapper
+                                .get_window(WindowType::ControlModeWindow)
+                                .reset();
                         }
                         _ => (),
                     },
