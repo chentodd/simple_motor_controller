@@ -137,6 +137,21 @@ impl MainWindow {
         }
     }
 
+    fn collect_motor_data(&mut self) -> Option<MotorTx> {
+        if let Some(data_recv) = self.communication.get_tx_data() {
+            let motor_data = &data_recv.left_motor;
+
+            self.view_events
+                .push(ViewEvent::ControlModeUpdate(motor_data.operation_display));
+            self.view_events
+                .push(ViewEvent::ProfileDataUpdate(ProfileData::from(motor_data)));
+
+            Some(motor_data.clone())
+        } else {
+            None
+        }
+    }
+
     fn handle_ui_request(&mut self, motor_data_recv: Option<&MotorTx>) {
         // Handle error first, because we need to reset UI if error appears
         for window_type in WindowType::iter() {
@@ -239,21 +254,6 @@ impl MainWindow {
                     .get_window(window_type)
                     .handle_event(event.clone());
             }
-        }
-    }
-
-    fn collect_motor_data(&mut self) -> Option<MotorTx> {
-        if let Some(data_recv) = self.communication.get_tx_data() {
-            let motor_data = &data_recv.left_motor;
-
-            self.view_events
-                .push(ViewEvent::ControlModeUpdate(motor_data.operation_display));
-            self.view_events
-                .push(ViewEvent::ProfileDataUpdate(ProfileData::from(motor_data)));
-
-            Some(motor_data.clone())
-        } else {
-            None
         }
     }
 
