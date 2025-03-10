@@ -2,8 +2,9 @@ use crate::{
     view::{
         command_window::CommandWindow, connection_window::ConnectionWindow,
         control_mode_window::ControlModeWindow, error_window::ErrorWindow,
+        profile_window::DataGraph,
     },
-    UiView,
+    UiView, DEFAULT_GRAPH_SIZE,
 };
 use std::collections::HashMap;
 use strum_macros::EnumIter;
@@ -13,6 +14,7 @@ pub enum WindowType {
     ConnectionWindow,
     ControlModeWindow,
     CommandWindow,
+    ProfileWindow,
     ErrorWindow,
 }
 
@@ -32,6 +34,10 @@ impl WindowWrapper {
             Box::new(ControlModeWindow::new()),
         );
         window_map.insert(WindowType::CommandWindow, Box::new(CommandWindow::new()));
+        window_map.insert(
+            WindowType::ProfileWindow,
+            Box::new(DataGraph::new(DEFAULT_GRAPH_SIZE)),
+        );
         window_map.insert(WindowType::ErrorWindow, Box::new(ErrorWindow::new()));
 
         Self { window_map }

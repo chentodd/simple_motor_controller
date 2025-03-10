@@ -9,6 +9,7 @@ use main_window::ErrorType;
 use proto::motor_::Operation;
 
 const DEFAULT_CONTROL_MODE: Operation = Operation::IntpVel;
+const DEFAULT_GRAPH_SIZE: usize = 600;
 
 pub mod proto {
     #![allow(clippy::all)]
@@ -50,5 +51,6 @@ pub enum ViewEvent {
     // Send internal operation mode request to control mode window and update
     // the tile of modal
     InternalControlModeRequest((Operation, String)),
-    // add other event variants here if needed
+    // Send motor profile data to profile window to draw the graph
+    ProfileDataUpdate(ProfileData),
 }
