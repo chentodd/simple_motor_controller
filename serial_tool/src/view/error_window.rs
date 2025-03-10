@@ -1,4 +1,4 @@
-use crate::{main_window::ErrorType, UiView, ViewEvent, ViewRequest};
+use crate::{ErrorType, UiView, ViewEvent, ViewRequest};
 use eframe::egui::{self, Id};
 
 #[derive(Default)]
