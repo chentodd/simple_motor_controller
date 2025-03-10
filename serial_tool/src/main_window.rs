@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use std::time::Duration;
 use std::{collections::BTreeMap, time::Instant};
 
@@ -6,15 +5,13 @@ use eframe::{
     egui::{self, Ui, Vec2},
     App, CreationContext,
 };
-use egui_plot::{Legend, Line, Plot};
 
 use crate::{
     communication::Communication,
     position_command_parser::CommandParser,
-    profile_measurement::{MeasurementWindow, ProfileDataType},
     proto::motor_::{MotorRx, MotorTx, Operation},
     view::window_wrapper::{WindowType, WindowWrapper},
-    ViewEvent, ViewRequest,
+    ErrorType, ProfileData, ViewEvent, ViewRequest,
 };
 use log::error;
 use strum::IntoEnumIterator;
@@ -28,14 +25,10 @@ enum ModeSwitchState {
 }
 
 pub struct MainWindow {
-    measurement_window: MeasurementWindow,
     communication: Communication,
     position_command_parser: CommandParser,
-
-    // Windows
     window_wrapper: WindowWrapper,
 
-    // Other members
     connection_started: bool,
     view_events: Vec<ViewEvent>,
 
@@ -47,29 +40,6 @@ pub struct MainWindow {
     output_mode: Operation,
     close_event_accepted: bool,
     velocity_command: f32,
-
-    profile_data_flags: [(ProfileDataType, bool); 6],
-    start_showing_profile_data: bool,
-}
-
-#[derive(Default, PartialEq, Eq, Clone, Copy)]
-pub enum ErrorType {
-    #[default]
-    None,
-    StartError,
-    StopError,
-    ModeSwitchTimeout,
-    ParseCommandError,
-}
-
-impl Display for Operation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match Operation::from(self.0) {
-            Operation::IntpPos => write!(f, "IntpPos"),
-            Operation::IntpVel => write!(f, "IntpVel"),
-            _ => Ok(()),
-        }
-    }
 }
 
 impl App for MainWindow {
@@ -102,12 +72,10 @@ impl App for MainWindow {
                 .show(ui);
         });
 
-        egui::SidePanel::right("profile_data_control_panel").show(ctx, |ui| {
-            self.display_profile_control_panel(ui);
-        });
-
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.display_profile_data_graph(ui);
+            self.window_wrapper
+                .get_window(WindowType::ProfileWindow)
+                .show(ui);
             self.window_wrapper
                 .get_window(WindowType::ErrorWindow)
                 .show(ui);
@@ -126,75 +94,18 @@ impl App for MainWindow {
 }
 
 impl MainWindow {
-    pub fn new(_cc: &CreationContext<'_>, window_size: usize) -> Self {
+    pub fn new(_cc: &CreationContext<'_>) -> Self {
         Self {
-            measurement_window: MeasurementWindow::new(window_size),
             communication: Communication::new(),
             position_command_parser: CommandParser::new(),
-
-            // Windows
             window_wrapper: WindowWrapper::new(),
-
-            // Other members
             connection_started: false,
             view_events: Vec::new(),
-
             requested_mode_map: BTreeMap::new(),
             requested_mode_finished: false,
-
             output_mode: Operation::default(),
             close_event_accepted: false,
-
             velocity_command: 0.0,
-
-            profile_data_flags: [
-                (ProfileDataType::IntpPos, false),
-                (ProfileDataType::IntpVel, false),
-                (ProfileDataType::IntpAcc, false),
-                (ProfileDataType::IntpJerk, false),
-                (ProfileDataType::ActPos, false),
-                (ProfileDataType::ActVel, false),
-            ],
-            start_showing_profile_data: false,
-        }
-    }
-
-    fn display_profile_control_panel(&mut self, ui: &mut Ui) {
-        if !self.connection_started {
-            ui.disable();
-        }
-
-        let text_in_button = if !self.start_showing_profile_data {
-            "▶"
-        } else {
-            "⏸"
-        };
-
-        if ui.button(text_in_button).clicked() {
-            self.start_showing_profile_data = !self.start_showing_profile_data;
-        }
-
-        for item in self.profile_data_flags.iter_mut() {
-            ui.checkbox(&mut item.1, item.0.to_string());
-        }
-    }
-
-    fn display_profile_data_graph(&mut self, ui: &mut Ui) {
-        Plot::new("profile_data")
-            .legend(Legend::default())
-            .show(ui, |plot_ui| {
-                for (data_type, enable) in self.profile_data_flags.iter() {
-                    if *enable {
-                        let data_points = self.measurement_window.get_data(*data_type);
-                        plot_ui.line(Line::new(data_points).name(data_type.to_string()));
-                    }
-                }
-            });
-
-        if let Some(data) = self.communication.get_tx_data() {
-            if self.start_showing_profile_data {
-                self.measurement_window.update_measurement_window(data);
-            }
         }
     }
 
@@ -234,8 +145,6 @@ impl MainWindow {
                     ViewRequest::ErrorDismissed(prev_error_type) => match prev_error_type {
                         ErrorType::StartError | ErrorType::StopError => {
                             self.communication.reset();
-                            self.measurement_window.reset();
-
                             for window_type in WindowType::iter() {
                                 self.window_wrapper.get_window(window_type).reset();
                             }
@@ -336,8 +245,12 @@ impl MainWindow {
     fn collect_motor_data(&mut self) -> Option<MotorTx> {
         if let Some(data_recv) = self.communication.get_tx_data() {
             let motor_data = &data_recv.left_motor;
+
             self.view_events
                 .push(ViewEvent::ControlModeUpdate(motor_data.operation_display));
+            self.view_events
+                .push(ViewEvent::ProfileDataUpdate(ProfileData::from(motor_data)));
+
             Some(motor_data.clone())
         } else {
             None
