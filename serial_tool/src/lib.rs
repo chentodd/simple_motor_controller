@@ -61,7 +61,7 @@ impl ProfileData {
             intp_acc: motor_data.intp_acc,
             intp_jerk: motor_data.intp_jerk,
             act_pos: motor_data.actual_pos,
-            act_vel: motor_data.actual_pos,
+            act_vel: motor_data.actual_vel,
         }
     }
 }
