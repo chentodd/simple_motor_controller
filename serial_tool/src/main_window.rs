@@ -22,6 +22,7 @@ enum ModeSwitchState {
     Idle,
     Start,
     Wait(Instant),
+    Done,
 }
 
 pub struct MainWindow {
@@ -272,31 +273,23 @@ impl MainWindow {
     }
 
     fn process_mode_switch(&mut self, motor_data_recv: Option<&MotorTx>) {
-        // Check items in request mode map, directly return if all the modes are finished
-        self.requested_mode_finished = false;
-        self.requested_mode_map.values().for_each(|x| {
-            if *x != ModeSwitchState::Idle {
-                self.requested_mode_finished = false;
-            }
-        });
+        let mut finished_states = 0_usize;
 
-        if self.requested_mode_finished {
-            self.requested_mode_map.clear();
-            return;
-        }
-
-        // Process mode switch if we have value motor status
         if let Some(data) = motor_data_recv {
             for (request_mode, switch_state) in self.requested_mode_map.iter_mut().rev() {
-                if *switch_state == ModeSwitchState::Idle {
+                if *switch_state == ModeSwitchState::Done {
                     continue;
                 }
 
                 let request_mode = Operation::from(*request_mode);
                 match switch_state {
                     ModeSwitchState::Idle => {
+                        self.requested_mode_finished = false;
+
                         if request_mode != data.operation_display {
                             *switch_state = ModeSwitchState::Start;
+                        } else {
+                            *switch_state = ModeSwitchState::Done;
                         }
                     }
                     ModeSwitchState::Start => {
@@ -317,11 +310,20 @@ impl MainWindow {
                         }
 
                         if request_mode == data.operation_display {
-                            *switch_state = ModeSwitchState::Idle;
+                            *switch_state = ModeSwitchState::Done;
                         }
+                    }
+                    ModeSwitchState::Done => {
+                        finished_states += 1;
                     }
                 }
             }
+        }
+
+        // If `requested_mode_map` is empty, it is not treated as `Done`
+        if !self.requested_mode_map.is_empty() && finished_states == self.requested_mode_map.len() {
+            self.requested_mode_finished = true;
+            self.requested_mode_map.clear();
         }
     }
 
