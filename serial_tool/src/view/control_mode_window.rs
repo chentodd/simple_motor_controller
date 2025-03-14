@@ -3,9 +3,10 @@ use eframe::egui::{self, ComboBox, Id, ProgressBar, Ui, Widget};
 
 #[derive(Default)]
 pub(super) struct ControlModeWindow {
+    request: Option<ViewRequest>,
     curr_control_mode: Operation,
     target_control_mode: Operation,
-    internal_request: (Operation, String),
+    internal_request: Option<(Operation, String)>,
     mode_switch_progress: Option<f32>,
 }
 
@@ -30,28 +31,31 @@ impl UiView for ControlModeWindow {
             });
 
         // Target mode is requested by internal functions
-        let (mode, title) = &self.internal_request;
-        let modal_title = if *mode != Operation::Unspecified {
+        let modal_title = if let Some((mode, title)) = self.internal_request.as_ref() {
             self.target_control_mode = *mode;
-            title
+            title.to_string()
         } else {
-            "Switch control mode"
+            "Switch control mode".to_string()
         };
 
         if self.target_control_mode != self.curr_control_mode {
-            egui::Modal::new(Id::new(modal_title)).show(ui.ctx(), |ui| {
-                ui.heading("Are you sure?");
+            egui::Modal::new(Id::new(&modal_title)).show(ui.ctx(), |ui| {
+                ui.heading(format!("{modal_title}, Are you sure?"));
                 egui::Sides::new().show(
                     ui,
                     |_ui| {},
                     |ui| {
                         if ui.button("Yes").clicked() {
+                            self.request = Some(ViewRequest::ModeSwitch(self.target_control_mode));
                             self.mode_switch_progress = Some(0.0);
                         }
 
                         if ui.button("No").clicked() {
-                            self.mode_switch_progress = None;
+                            self.request = Some(ViewRequest::ModeCancel);
                             self.target_control_mode = self.curr_control_mode;
+
+                            self.mode_switch_progress = None;
+                            self.internal_request = None;
                         }
                     },
                 );
@@ -75,11 +79,7 @@ impl UiView for ControlModeWindow {
     }
 
     fn take_request(&mut self) -> Option<ViewRequest> {
-        if self.target_control_mode != self.curr_control_mode {
-            Some(ViewRequest::ModeSwitch(self.target_control_mode))
-        } else {
-            None
-        }
+        self.request.take()
     }
 
     fn handle_event(&mut self, event: ViewEvent) {
@@ -88,7 +88,7 @@ impl UiView for ControlModeWindow {
                 self.curr_control_mode = mode
             }
             ViewEvent::InternalControlModeRequest(x) => {
-                self.internal_request = x;
+                self.internal_request = Some(x);
             }
             _ => (),
         }
