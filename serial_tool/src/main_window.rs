@@ -154,33 +154,40 @@ impl MainWindow {
 
     fn handle_ui_request(&mut self, motor_data_recv: Option<&MotorTx>) {
         // Handle error first, because we need to reset UI if error appears
-        for window_type in WindowType::iter() {
-            if let Some(request) = self.window_wrapper.get_window(window_type).take_request() {
-                match request {
-                    ViewRequest::ErrorDismissed(prev_error_type) => match prev_error_type {
-                        ErrorType::StartError | ErrorType::StopError => {
-                            self.communication.reset();
-                            for window_type in WindowType::iter() {
-                                self.window_wrapper.get_window(window_type).reset();
-                            }
+        if let Some(request) = self
+            .window_wrapper
+            .get_window(WindowType::ErrorWindow)
+            .take_request()
+        {
+            match request {
+                ViewRequest::ErrorDismiss(prev_error_type) => match prev_error_type {
+                    ErrorType::StartError | ErrorType::StopError => {
+                        self.communication.reset();
+                        self.close_event_accepted = false;
+
+                        for window_type in WindowType::iter() {
+                            self.window_wrapper.get_window(window_type).reset();
                         }
-                        ErrorType::ModeSwitchTimeout => {
-                            self.window_wrapper
-                                .get_window(WindowType::ControlModeWindow)
-                                .reset();
-                        }
-                        _ => (),
-                    },
+                    }
+                    ErrorType::ModeSwitchTimeout => {
+                        self.close_event_accepted = false;
+
+                        self.window_wrapper
+                            .get_window(WindowType::ControlModeWindow)
+                            .reset();
+                    }
                     _ => (),
-                }
+                },
+                _ => (),
             }
         }
 
         // Handle other requests and create view events is needed
         for window_type in WindowType::iter() {
-            if let Some(request) = self.window_wrapper.get_window(window_type).take_request() {
+            let a = self.window_wrapper.get_window(window_type).take_request();
+            if let Some(request) = a {
                 match request {
-                    ViewRequest::StartConnection(port_name) => {
+                    ViewRequest::ConnectionStart(port_name) => {
                         if let Err(e) = self.communication.start(&port_name) {
                             self.view_events.push(ViewEvent::ErrorOccurred(
                                 ErrorType::StartError,
@@ -192,7 +199,7 @@ impl MainWindow {
                                 .push(ViewEvent::ConnectionStatusUpdate(self.connection_started));
                         }
                     }
-                    ViewRequest::StopConnection if self.requested_mode_finished => {
+                    ViewRequest::ConnectionStop if self.requested_mode_finished => {
                         if let Err(e) = self.communication.stop() {
                             self.view_events.push(ViewEvent::ErrorOccurred(
                                 ErrorType::StartError,
@@ -204,7 +211,7 @@ impl MainWindow {
                                 .push(ViewEvent::ConnectionStatusUpdate(self.connection_started));
                         }
                     }
-                    ViewRequest::StopConnection if !self.requested_mode_finished => {
+                    ViewRequest::ConnectionStop if !self.requested_mode_finished => {
                         if let Some(data) = motor_data_recv {
                             // When user asks to stop connection, we will do:
                             // 1. Send stop mode to the board, make sure motor is not moving
@@ -228,16 +235,23 @@ impl MainWindow {
                             .entry(Operation::Stop.0)
                             .or_insert(ModeSwitchState::Idle);
                     }
-                    ViewRequest::VelocityCommand(cmd) => {
+                    ViewRequest::ModeCancel => {
+                        self.requested_mode_finished = false;
+                        self.close_event_accepted = false;
+                    }
+                    ViewRequest::VelocityControl(cmd) => {
+                        self.output_mode = Operation::IntpVel;
                         self.velocity_command = cmd;
                     }
-                    ViewRequest::PositionCommand((cmd, ready)) => {
+                    ViewRequest::PositionControl((cmd, ready)) => {
                         if ready {
                             if let Err(e) = self.position_command_parser.parse(&cmd) {
                                 self.view_events.push(ViewEvent::ErrorOccurred(
                                     ErrorType::ParseCommandError,
                                     e.to_string(),
                                 ));
+                            } else {
+                                self.output_mode = Operation::IntpPos;
                             }
                         }
                     }

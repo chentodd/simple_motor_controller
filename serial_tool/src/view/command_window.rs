@@ -54,11 +54,11 @@ impl UiView for CommandWindow {
 
     fn take_request(&mut self) -> Option<ViewRequest> {
         match self.curr_control_mode {
-            Operation::IntpVel => Some(ViewRequest::VelocityCommand(self.velocity_command)),
+            Operation::IntpVel => Some(ViewRequest::VelocityControl(self.velocity_command)),
             Operation::IntpPos => {
                 let ready = self.position_command_ready;
                 self.position_command_ready = false;
-                Some(ViewRequest::PositionCommand((
+                Some(ViewRequest::PositionControl((
                     self.position_command.clone(),
                     ready,
                 )))

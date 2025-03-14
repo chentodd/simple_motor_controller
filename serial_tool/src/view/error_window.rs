@@ -46,7 +46,7 @@ impl UiView for ErrorWindow {
             self.error_message.clear();
             self.error_cleared = false;
 
-            Some(ViewRequest::ErrorDismissed(prev_error_type))
+            Some(ViewRequest::ErrorDismiss(prev_error_type))
         } else {
             None
         }
