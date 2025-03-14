@@ -33,7 +33,7 @@ impl Display for Operation {
     }
 }
 
-#[derive(Default, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub enum ErrorType {
     #[default]
     None,
@@ -89,19 +89,20 @@ impl Display for ProfileDataType {
     }
 }
 
+#[derive(Debug)]
 pub enum ViewRequest {
     // A request that wants to start connection with a port name from connection window
-    StartConnection(String),
+    ConnectionStart(String),
     // A request that wants to stop connection from connection window
-    StopConnection,
+    ConnectionStop,
     // A request that wants to clear error from error window
-    ErrorDismissed(ErrorType),
+    ErrorDismiss(ErrorType),
     // A request that wants to change to target mode from control mode window
     ModeSwitch(Operation),
     // A request that wants to control velocity from command window
-    VelocityCommand(f32),
+    VelocityControl(f32),
     // A request that wants to control position from command window
-    PositionCommand((String, bool)),
+    PositionControl((String, bool)),
 }
 
 #[derive(Clone)]
