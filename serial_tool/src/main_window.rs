@@ -116,6 +116,7 @@ impl MainWindow {
         match self.output_mode {
             Operation::IntpVel => {
                 let mut vel_cmd = MotorRx::default();
+
                 vel_cmd.set_target_vel(self.velocity_command);
 
                 motor_commads.push(vel_cmd);
@@ -123,6 +124,7 @@ impl MainWindow {
             Operation::IntpPos => {
                 while let Some(cmd) = self.position_command_parser.get_command() {
                     let mut pos_cmd = MotorRx::default();
+
                     pos_cmd.set_target_dist(cmd.dist);
                     pos_cmd.set_target_vel(cmd.vel);
                     pos_cmd.set_target_vel_end(cmd.vel_end);
@@ -133,7 +135,8 @@ impl MainWindow {
             _ => (),
         }
 
-        for motor_cmd in motor_commads {
+        for mut motor_cmd in motor_commads {
+            motor_cmd.operation = self.output_mode;
             self.communication.set_rx_data(motor_cmd);
         }
     }
