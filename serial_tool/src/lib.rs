@@ -99,6 +99,8 @@ pub enum ViewRequest {
     ErrorDismiss(ErrorType),
     // A request that wants to change to target mode from control mode window
     ModeSwitch(Operation),
+    // A request that cancels mode switching from control mode window
+    ModeCancel,
     // A request that wants to control velocity from command window
     VelocityControl(f32),
     // A request that wants to control position from command window
