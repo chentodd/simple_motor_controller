@@ -239,7 +239,7 @@ impl Communication {
         buffer_full: Arc<AtomicBool>,
         mut serial_port: Box<dyn SerialPort>,
     ) {
-        let packet_buffer = [0_u8; 128];
+        let packet_buffer = [0_u8; 512];
         let mut packet_encoder = PacketEncoder::new(packet_buffer);
 
         // This queue is used to store the command from `command_rx_queue`, and it will
@@ -298,7 +298,7 @@ impl Communication {
         keep_rx_alive: Arc<AtomicBool>,
         mut serial_port: Box<dyn SerialPort>,
     ) {
-        let mut packet_buffer = [0_u8; 128];
+        let mut packet_buffer = [0_u8; 512];
         let mut packet_decoder = PacketDecoder::new();
         let mut tx_packet = CommandTx::default();
 
