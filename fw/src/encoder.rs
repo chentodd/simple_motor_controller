@@ -49,7 +49,7 @@ impl<'a, T: GeneralInstance4Channel, const COUNTS_PER_REV: u16> Encoder<'a, T, C
         let prev_count = self.f_values.last().cloned().unwrap_or(0.0);
         let curr_count = self.curr_enc_count as f32;
         let filtered_enc = 0.8 * prev_count + 0.2 * curr_count;
-        let vel_count_s = if !self.f_values.is_full() {    
+        let vel_count_s = if !self.f_values.is_full() {
             let _ = self.f_values.push(filtered_enc);
             (filtered_enc - prev_count) as f32 / period_s
         } else {
