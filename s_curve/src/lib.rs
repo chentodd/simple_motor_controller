@@ -183,6 +183,7 @@ impl SCurveInterpolator {
         self.target_data.dist = 0.0;
         self.target_data.vel_end = 0.0;
         self.intp_status = InterpolationStatus::Busy;
+        self.intp_data.dec_start_period = usize::MIN;
     }
 
     fn calculate_dec_distance(&mut self) {
