@@ -68,7 +68,10 @@ impl SCurveInterpolator {
         Self {
             intp_data: InterpolationData::default(),
             intp_status: InterpolationStatus::default(),
-            target_data: TargetData::default(),
+            target_data: TargetData {
+                dir: 1.0,
+                ..Default::default()
+            },
             motion_constraint: SCurveConstraint {
                 vel_limit,
                 acc_limit,
@@ -113,7 +116,13 @@ impl SCurveInterpolator {
         };
 
         // Calculate dir coefficient
-        let dir = if dist >= 0.0 { 1.0 } else { -1.0 };
+        let dir = if dist > 0.0 {
+            1.0
+        } else if dist < 0.0 {
+            -1.0
+        } else {
+            self.get_dir()
+        };
         self.target_data.dir = dir;
 
         // Use symmetric settings for min value and update target data struct
