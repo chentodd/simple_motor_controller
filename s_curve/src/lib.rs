@@ -121,6 +121,11 @@ impl SCurveInterpolator {
         } else if dist < 0.0 {
             -1.0
         } else {
+            // Use previous `dir` settings if distance is 0. The `dir`` is decided by
+            // `dist`, and `dist == 0` means there is no movement. But it can have
+            // previous movement, Ex: if previous is a negative movement, then we will
+            // use previous dir settings to product jump errors when handling `vel` and
+            // `vel_end`
             self.get_dir()
         };
         self.target_data.dir = dir;
