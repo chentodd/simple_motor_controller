@@ -44,7 +44,7 @@ pub struct TargetData {
     acc_min: f32,
     jerk_max: f32,
     jerk_min: f32,
-    dir: f32
+    dir: f32,
 }
 
 #[derive(Default, Clone)]
