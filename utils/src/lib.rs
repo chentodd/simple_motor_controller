@@ -123,6 +123,10 @@ impl PacketDecoder {
         }
     }
 
+    pub fn get_len(&self) -> u32 {
+        self.len
+    }
+
     pub fn get_valid_packet_index(&mut self, stream: &[u8]) -> Option<usize> {
         if stream.len() >= size_of::<MessageId>() + LENGTH_TYPE_IN_BYTES {
             for i in 0..stream.len() {
