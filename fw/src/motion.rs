@@ -12,6 +12,7 @@ pub struct Motion<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> 
     pub motor: BldcMotor24H<'a, T1, T2>,
     pub s_curve_intper: SCurveInterpolator,
     operation: Operation,
+    abort_request: bool,
 }
 
 impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1, T2> {
@@ -20,11 +21,12 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1
             motor,
             s_curve_intper,
             operation: Operation::IntpVel,
+            abort_request: false,
         }
     }
 
-    pub fn ready(&self) -> bool {
-        match self.operation {
+    pub fn ready(&mut self) -> bool {
+        let is_ready = match self.operation {
             Operation::IntpPos => {
                 #[cfg(feature = "debug-motion")]
                 debug!(
@@ -32,18 +34,24 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1
                     self.s_curve_intper.get_intp_status() as u8
                 );
 
-                return self.s_curve_intper.get_intp_status() == InterpolationStatus::Done;
+                self.s_curve_intper.get_intp_status() == InterpolationStatus::Done
             }
             Operation::IntpVel => {
                 #[cfg(feature = "debug-motion")]
                 debug!("ready, vel, {}", self.motor.get_error());
 
-                return self.motor.pid.get_error().abs() <= 60.0;
+                self.motor.pid.get_error().abs() <= 60.0
             }
-            _ => (),
+            Operation::Stop => true,
+            _ => false,
+        };
+
+        if is_ready && self.abort_request {
+            self.abort_request = false;
+            self.operation = Operation::Stop;
         }
 
-        true
+        is_ready
     }
 
     pub fn get_operation(&self) -> Operation {
@@ -51,8 +59,11 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1
     }
 
     pub fn set_command(&mut self, command: MotorRx) {
-        // Record operation
-        self.operation = command.operation;
+        // Record operation if it is not Stop operation. The Stop
+        // operation when only be set if motor is stopped
+        if command.operation != Operation::Stop {
+            self.operation = command.operation;
+        }
 
         match command.operation {
             Operation::IntpPos => {
@@ -66,6 +77,7 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1
             }
             Operation::PidVel => todo!(),
             Operation::PidTune => todo!(),
+            Operation::Stop => self.abort(),
             _ => (),
         }
     }
@@ -91,6 +103,21 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1
         // If current operation != `IntPos`, the target velocity will be set by `set_command` function
         // Note: only `IntpVel` is handled, and the other operation modes are currently listed as `todo!()`
         self.motor.run_pid_velocity_control();
+    }
+
+    fn abort(&mut self) {
+        self.abort_request = true;
+        match self.operation {
+            Operation::IntpPos => {
+                self.s_curve_intper.stop();
+            }
+            Operation::IntpVel => {
+                self.motor.set_target_velocity(0.0);
+            }
+            Operation::PidVel => todo!(),
+            Operation::PidTune => todo!(),
+            _ => (),
+        }
     }
 
     fn set_pos_command(&mut self, command: &MotorRx) {
