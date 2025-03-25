@@ -162,13 +162,24 @@ async fn rx_task(mut rx: UartRx<'static, Async>) {
     loop {
         let mut raw_buffer = [0_u8; 128];
         let read_count = rx.read_until_idle(&mut raw_buffer).await;
+
         if let Ok(_read_count) = read_count {
-            if let Some(good_packet_index) = packet_decoder.get_valid_packet_index(&raw_buffer) {
+            let packet_slice = &mut &raw_buffer[..];
+            while let Some(good_packet_index) = packet_decoder.get_valid_packet_index(&packet_slice)
+            {
                 if packet_decoder
-                    .parse_proto_message(&raw_buffer[good_packet_index..], &mut command_rx)
+                    .parse_proto_message(&packet_slice[good_packet_index..], &mut command_rx)
                 {
                     #[cfg(feature = "debug-rx")]
                     debug!("parse ok, command_rx");
+
+                    if command_rx.left_motor.operation == Operation::Stop {
+                        left_cmd_publisher.clear();
+                    }
+
+                    if command_rx.right_motor.operation == Operation::Stop {
+                        right_cmd_publisher.clear();
+                    }
 
                     if !left_cmd_publisher.is_full() {
                         match left_cmd_publisher.try_publish(command_rx.left_motor.clone()) {
@@ -189,6 +200,9 @@ async fn rx_task(mut rx: UartRx<'static, Async>) {
                             }
                         }
                     }
+
+                    let len = packet_decoder.get_len() as usize;
+                    *packet_slice = &packet_slice[len..];
                 }
             }
         }
