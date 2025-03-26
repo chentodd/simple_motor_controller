@@ -7,7 +7,7 @@ const T: f32 = 0.001;
 
 fn main() {
     let mut s_curve_interpolator = SCurveInterpolator::new(10.0, 10.0, 30.0, T);
-    s_curve_interpolator.set_target(-10.0, 1.0, 0.0, 5.0);
+    s_curve_interpolator.set_target(0.0, -10.0, 1.0, 0.0, 5.0);
 
     let mut time = 0.0;
     let mut time_stamps = Vec::new();
