@@ -60,7 +60,7 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1
 
     pub fn set_command(&mut self, command: MotorRx) {
         // Record operation if it is not Stop operation. The Stop
-        // operation when only be set if motor is stopped
+        // operation will only be set if motor is stopped
         if command.operation != Operation::Stop {
             self.operation = command.operation;
         }
