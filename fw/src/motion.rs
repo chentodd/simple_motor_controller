@@ -134,7 +134,7 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1
         debug!(
             "set_pos_command, {}, {}, {}, {}",
             command.target_dist,
-            self.motor.get_current_velocity(),
+            self.motor.encoder.get_act_velocity_in_rpm(),
             vel_end,
             vel
         );
