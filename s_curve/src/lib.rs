@@ -37,6 +37,7 @@ pub struct TargetData {
     pub vel_start: f32,
     pub vel_end: f32,
     pub vel_max: f32,
+    pos_offset: f32,
     vel_min: f32,
     acc_start: f32,
     acc_end: f32,
@@ -89,7 +90,14 @@ impl SCurveInterpolator {
         self.intp_status
     }
 
-    pub fn set_target(&mut self, dist: f32, vel_start: f32, vel_end: f32, vel_max: f32) {
+    pub fn set_target(
+        &mut self,
+        pos_offset: f32,
+        dist: f32,
+        vel_start: f32,
+        vel_end: f32,
+        vel_max: f32,
+    ) {
         let t = self.motion_constraint.sampling_time;
 
         // Simple protection for v_max, the value should be greater than 0
@@ -131,6 +139,7 @@ impl SCurveInterpolator {
         self.target_data.dir = dir;
 
         // Use symmetric settings for min value and update target data struct
+        self.target_data.pos_offset = pos_offset.abs();
         self.target_data.dist += dir * dist;
         self.target_data.vel_start = vel_start;
         self.target_data.vel_end = vel_end;
@@ -351,7 +360,7 @@ impl SCurveInterpolator {
         self.intp_data.acc = acc_next;
         self.intp_data.vel = vel_next;
         self.intp_data.dist = dist_next;
-        self.intp_data.pos = dist_next;
+        self.intp_data.pos = self.target_data.pos_offset + dist_next;
         self.intp_data.steps += 1;
     }
 }
