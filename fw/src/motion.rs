@@ -125,8 +125,10 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1
         let vel_start = rpm_to_rad_s(self.motor.encoder.get_act_velocity_in_rpm());
         let vel_end = rpm_to_rad_s(command.target_vel_end);
 
+        let pos_offset =
+            self.motor.encoder.get_act_position_in_rad() - self.s_curve_intper.get_intp_data().pos;
         self.s_curve_intper
-            .set_target(command.target_dist, vel_start, vel_end, vel);
+            .set_target(pos_offset, command.target_dist, vel_start, vel_end, vel);
 
         #[cfg(feature = "debug-motion")]
         debug!(
