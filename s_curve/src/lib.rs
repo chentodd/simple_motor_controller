@@ -6,22 +6,6 @@ use std::io::Write;
 #[cfg(not(feature = "std"))]
 use num_traits::Float;
 
-#[derive(Default, Clone)]
-pub struct InterpolationData {
-    pub pos: f32,
-    pub dist: f32,
-    pub vel: f32,
-    pub acc: f32,
-    pub jerk: f32,
-
-    ta: [f32; 2],
-    tb: [f32; 2],
-    td: [f32; 2],
-    h: f32,
-    steps: usize,
-    dec_start_period: usize,
-}
-
 #[repr(u8)]
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub enum InterpolationStatus {
@@ -46,6 +30,32 @@ pub struct TargetData {
     jerk_max: f32,
     jerk_min: f32,
     dir: f32,
+}
+
+#[derive(Default, Clone)]
+pub struct InterpolationDataOutput {
+    pub pos: f32,
+    pub vel: f32,
+    pub acc: f32,
+    pub jerk: f32,
+}
+
+#[derive(Default, Clone)]
+struct InterpolationData {
+    pos: f32,
+    dist: f32,
+    vel: f32,
+    acc: f32,
+    jerk: f32,
+
+    ta: [f32; 2],
+    tb: [f32; 2],
+    td: [f32; 2],
+    h: f32,
+    steps: usize,
+    dec_start_period: usize,
+    dec_right_away: bool,
+    pos_end: f32,
 }
 
 #[derive(Default, Clone)]
@@ -82,8 +92,14 @@ impl SCurveInterpolator {
         }
     }
 
-    pub fn get_intp_data(&self) -> &InterpolationData {
-        &self.intp_data
+    pub fn get_intp_data(&self) -> InterpolationDataOutput {
+        let dir = self.target_data.dir;
+        InterpolationDataOutput {
+            pos: self.intp_data.pos * dir,
+            vel: self.intp_data.vel * dir,
+            acc: self.intp_data.acc * dir,
+            jerk: self.intp_data.jerk * dir,
+        }
     }
 
     pub fn get_intp_status(&self) -> InterpolationStatus {
@@ -161,10 +177,6 @@ impl SCurveInterpolator {
         self.intp_data.dec_start_period = usize::MIN;
     }
 
-    pub fn get_dir(&self) -> f32 {
-        self.target_data.dir
-    }
-
     pub fn interpolate(&mut self) {
         if self.intp_status == InterpolationStatus::Done {
             return;
@@ -178,7 +190,7 @@ impl SCurveInterpolator {
 
     #[cfg(feature = "std")]
     pub fn save_intp_data(&self, file: &mut std::fs::File) {
-        let dir = self.get_dir();
+        let dir = self.target_data.dir;
         let _ = write!(
             file,
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",

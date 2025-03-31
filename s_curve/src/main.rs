@@ -22,14 +22,13 @@ fn main() {
         s_curve_interpolator.interpolate();
 
         let s_curve_intp_data = s_curve_interpolator.get_intp_data();
-        let dir = s_curve_interpolator.get_dir();
 
         time += T;
         time_stamps.push(time);
-        jerk.push(s_curve_intp_data.jerk * dir);
-        acc.push(s_curve_intp_data.acc * dir);
-        vel.push(s_curve_intp_data.vel * dir);
-        pos.push(s_curve_intp_data.pos * dir);
+        jerk.push(s_curve_intp_data.jerk);
+        acc.push(s_curve_intp_data.acc);
+        vel.push(s_curve_intp_data.vel);
+        pos.push(s_curve_intp_data.pos);
 
         s_curve_interpolator.save_intp_data(&mut file);
     }
