@@ -489,7 +489,12 @@ impl SCurveInterpolator {
         self.intp_data.acc = acc_next;
         self.intp_data.vel = vel_next;
         self.intp_data.dist = dist_next;
-        self.intp_data.pos = self.target_data.pos_offset + dist_next;
+        self.intp_data.pos = self.target_data.pos_offset + self.intp_data.pos_end + dist_next;
         self.intp_data.steps += 1;
+
+        // Store intp pos if the state is Done
+        if self.intp_status == InterpolationStatus::Done {
+            self.intp_data.pos_end = self.target_data.dir * self.intp_data.pos;
+        }
     }
 }
