@@ -298,7 +298,6 @@ impl Communication {
         keep_rx_alive: Arc<AtomicBool>,
         mut serial_port: Box<dyn SerialPort>,
     ) {
-        let mut packet_buffer = [0_u8; 512];
         let mut packet_decoder = PacketDecoder::new();
         let mut tx_packet = CommandTx::default();
 
@@ -308,13 +307,15 @@ impl Communication {
                 break;
             }
 
+            let mut packet_buffer = [0_u8; 512];
             let read_count = serial_port.read(&mut packet_buffer);
             if let Ok(_read_count) = read_count {
-                if let Some(good_start_index) =
-                    packet_decoder.get_valid_packet_index(&packet_buffer)
+                let packet_slice = &mut &packet_buffer[..];
+                while let Some(good_start_index) =
+                    packet_decoder.get_valid_packet_index(&packet_slice)
                 {
                     if packet_decoder
-                        .parse_proto_message(&packet_buffer[good_start_index..], &mut tx_packet)
+                        .parse_proto_message(&packet_slice[good_start_index..], &mut tx_packet)
                     {
                         buffer_full
                             .store(tx_packet.left_motor.command_buffer_full, Ordering::Release);
@@ -322,6 +323,9 @@ impl Communication {
                         if let Err(_e) = command_tx_sender.send(tx_packet.clone()) {
                             error!("rx_task(), fail to send serial data to channel, {_e}");
                         }
+
+                        let len = packet_decoder.get_len() as usize;
+                        *packet_slice = &packet_slice[len..];
                     }
                 }
             }
