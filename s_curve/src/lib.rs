@@ -254,6 +254,11 @@ impl SCurveInterpolator {
         self.intp_data.vel = self.target_data.vel_start;
         self.intp_data.acc = self.target_data.acc_start;
 
+        // Special case, update intp dist according to intp status
+        if self.intp_status == InterpolationStatus::Done {
+            self.intp_data.dist = 0.0;
+        }
+
         // Update status
         self.intp_status = InterpolationStatus::Busy;
         self.intp_data.dec_start_period = usize::MIN;
@@ -288,10 +293,28 @@ impl SCurveInterpolator {
     }
 
     pub fn stop(&mut self) {
-        self.target_data.dist = 0.0;
-        self.target_data.vel_end = 0.0;
-        self.intp_status = InterpolationStatus::Busy;
-        self.intp_data.dec_start_period = usize::MIN;
+        // 1. Set `dec_right_away` to true:
+        //    * Stop generating acc/vel data
+        //    * Run deceleration segment right away
+        //
+        // 2. Use `set_target` to force deceleration 
+        //    * Special displacement: 0.0
+        //      In general case, 0 displacement will be rejected, but it is allowed when running `Stop`. The 0
+        //      displacement makes sure deceleration distance is larger(or equal) to remaing distance which forces
+        //      intp to run deceleration calculation (in `generate_jerk_dec_segment`)
+        //    * Vel start: use current intp vel times direction.
+        //      Because all the calculation is based on positive segment, the intp vel needs to be flipped to get real
+        //      value)
+        //    * End velocity: 0
+        //      Make axis stop at the end and also make sure `calculate_dec_distance` is activated
+        self.intp_data.dec_right_away = true;
+        self.set_target(
+            0.0,
+            0.0,
+            self.intp_data.vel * self.target_data.dir,
+            0.0,
+            self.motion_constraint.vel_limit,
+        );
     }
 
     fn calculate_dec_distance(&mut self) {
@@ -358,7 +381,9 @@ impl SCurveInterpolator {
     }
 
     fn generate_jerk_acc_vel_segment(&mut self) {
-        if self.intp_data.h >= (self.target_data.dist - self.intp_data.dist) {
+        if self.intp_data.h >= (self.target_data.dist - self.intp_data.dist)
+            || self.intp_data.dec_right_away
+        {
             // Check decelerate distance, do acceleration only when decelerate
             // distance is less than remaining distance
             return;
@@ -392,7 +417,9 @@ impl SCurveInterpolator {
     }
 
     fn generate_jerk_dec_segment(&mut self) {
-        if self.intp_data.h < (self.target_data.dist - self.intp_data.dist) {
+        if self.intp_data.h < (self.target_data.dist - self.intp_data.dist)
+            && !self.intp_data.dec_right_away
+        {
             return;
         }
 
@@ -437,6 +464,7 @@ impl SCurveInterpolator {
             // set finished status
             self.intp_status = InterpolationStatus::Done;
             self.intp_data.dec_start_period = usize::MIN;
+            self.intp_data.dec_right_away = false;
         }
     }
 
