@@ -254,7 +254,14 @@ impl SCurveInterpolator {
         self.intp_data.vel = self.target_data.vel_start;
         self.intp_data.acc = self.target_data.acc_start;
 
-        // Special case, update intp dist according to intp status
+        // Special case, update intp dist according to intp status.
+        //
+        // 1. If previous intp is finished, the intp dist is set to 0, this makes sure intp can generate correct 
+        //    distance when running new segment. (combined with `pos_end`, we can get expected position value)
+        // 2. If previous intp is not finished, the intp dist is not set to 0. Currently, this is caused by stopping
+        //    the interplation in the middle by calling `stop`. Because we need to make sure axis is stopping from
+        //    current position, the distance is not reset to 0. (If it is reset to 0, then position will jump during
+        //    calculation)
         if self.intp_status == InterpolationStatus::Done {
             self.intp_data.dist = 0.0;
         }
