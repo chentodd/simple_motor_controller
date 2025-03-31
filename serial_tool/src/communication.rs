@@ -256,6 +256,9 @@ impl Communication {
 
         loop {
             let command_rx = command_rx_queue.process();
+            if command_rx.left_motor.operation == Operation::Stop {
+                internal_command_cache.clear();
+            }
 
             internal_command_cache.push_back(command_rx);
             if let Some(command) = internal_command_cache.front() {
