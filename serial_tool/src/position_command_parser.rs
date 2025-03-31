@@ -28,8 +28,16 @@ impl CommandParser {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.command_queue.clear();
+    }
+
     pub fn get_command(&mut self) -> Option<CommandData> {
         self.command_queue.pop_front()
+    }
+
+    pub fn have_data(&self) -> bool {
+        !self.command_queue.is_empty()
     }
 
     pub fn parse<'a>(&mut self, input: &'a str) -> Result<(), nom::Err<Error<&'a str>>> {
