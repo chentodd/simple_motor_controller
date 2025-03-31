@@ -5,7 +5,7 @@ use eframe::egui::{self, Id};
 pub(super) struct ErrorWindow {
     error_type: ErrorType,
     error_message: String,
-    error_cleared: bool,
+    request: Option<ViewRequest>,
 }
 
 impl ErrorWindow {
@@ -31,7 +31,9 @@ impl UiView for ErrorWindow {
                 |_ui| {},
                 |ui| {
                     if ui.button("Ok").clicked() {
-                        self.error_cleared = true;
+                        self.request = Some(ViewRequest::ErrorDismiss(self.error_type));
+                        self.error_type = ErrorType::None;
+                        self.error_message.clear();
                     }
                 },
             );
@@ -39,17 +41,7 @@ impl UiView for ErrorWindow {
     }
 
     fn take_request(&mut self) -> Option<ViewRequest> {
-        if self.error_cleared {
-            let prev_error_type = self.error_type;
-
-            self.error_type = ErrorType::None;
-            self.error_message.clear();
-            self.error_cleared = false;
-
-            Some(ViewRequest::ErrorDismiss(prev_error_type))
-        } else {
-            None
-        }
+        self.request.take()
     }
 
     fn handle_event(&mut self, event: ViewEvent) {
