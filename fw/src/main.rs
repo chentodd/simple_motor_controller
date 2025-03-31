@@ -158,7 +158,6 @@ async fn rx_task(mut rx: UartRx<'static, Async>) {
     let right_cmd_publisher = RIGHT_COMMAND_CHANNEL.publisher().unwrap();
 
     let mut packet_decoder = PacketDecoder::new();
-    let mut command_rx = CommandRx::default();
     loop {
         let mut raw_buffer = [0_u8; 128];
         let read_count = rx.read_until_idle(&mut raw_buffer).await;
@@ -167,6 +166,8 @@ async fn rx_task(mut rx: UartRx<'static, Async>) {
             let packet_slice = &mut &raw_buffer[..];
             while let Some(good_packet_index) = packet_decoder.get_valid_packet_index(&packet_slice)
             {
+                let mut command_rx = CommandRx::default();
+
                 if packet_decoder
                     .parse_proto_message(&packet_slice[good_packet_index..], &mut command_rx)
                 {
