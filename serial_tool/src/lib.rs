@@ -28,6 +28,7 @@ impl Display for Operation {
         match Operation::from(self.0) {
             Operation::IntpPos => write!(f, "IntpPos"),
             Operation::IntpVel => write!(f, "IntpVel"),
+            Operation::Stop => write!(f, "Stop"),
             _ => Ok(()),
         }
     }
