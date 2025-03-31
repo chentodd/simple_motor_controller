@@ -109,15 +109,21 @@ impl SCurveInterpolator {
     pub fn set_target(
         &mut self,
         pos_offset: f32,
-        dist: f32,
+        displacement: f32,
         vel_start: f32,
         vel_end: f32,
-        vel_max: f32,
+        vel_max_magnitude: f32,
     ) {
         let t = self.motion_constraint.sampling_time;
 
+        // The interpolation is not needed if distance == 0 or v_max == 0. The `dec_right_away` is a special case for
+        // aborting interpolation and 0 displacement is allowed in this case
+        if (displacement == 0.0 && !self.intp_data.dec_right_away) || vel_max_magnitude == 0.0 {
+            return;
+        }
+
         // Simple protection for v_max, the value should be greater than 0
-        let vel_max = vel_max.abs();
+        let vel_max = vel_max_magnitude.abs();
         let vel_max = if vel_max <= 1e-6 || vel_max > self.motion_constraint.vel_limit {
             self.motion_constraint.vel_limit
         } else {
@@ -140,25 +146,101 @@ impl SCurveInterpolator {
         };
 
         // Calculate dir coefficient
-        let dir = if dist > 0.0 {
-            1.0
-        } else if dist < 0.0 {
-            -1.0
-        } else {
-            // Use previous `dir` settings if distance is 0. The `dir`` is decided by
-            // `dist`, and `dist == 0` means there is no movement. But it can have
-            // previous movement, Ex: if previous is a negative movement, then we will
-            // use previous dir settings to product jump errors when handling `vel` and
-            // `vel_end`
-            self.get_dir()
-        };
+        let dir_prev = self.target_data.dir;
+        let dir = if displacement >= 0.0 { 1.0 } else { -1.0 };
         self.target_data.dir = dir;
 
+        // Special case, override displacement if `dec_right_away` is true
+        let mut displacement = displacement;
+        if self.intp_data.dec_right_away {
+            displacement = 0.0;
+        }
+
+        // According to the equations on book, the s-curve will always treat the segment as positive which means
+        // `q_end > q_start`. If `q_end < q_start` we need to flip velocity and position
+        //
+        // Override `vel_start` if previous intp vel != 0 to make sure current moves after previous segmenet
+        // 1. If previous direction is negative, the sign of previous intp velocity is flipped.
+        //    Example:
+        //      Test input A:
+        //        * q_start: 0
+        //        * q_end: -10
+        //        * vel_start: 0
+        //        * vel_end: -2
+        // 
+        //      This settings will be processed as positive segment:
+        //        * q_start: 0
+        //        * q_end: 10
+        //        * vel_start: 0
+        //        * vel_end: 2
+        //      with a negative direction settings (-1.0). The direction settings will be used to flip the 
+        //      interpolated value during the output stage.
+        //      
+        //      After test input A is finished, the intp vel is 2, and this value need to be fliped to prevent
+        //      velocity jump errors. 
+        //
+        //      a. New input that moves axis in negative direction:
+        //         vel_start = -2 (flipped)
+        //         target_data.vel = -1 * vel_start = 2 (flipped)
+        //         output vel = -1 * intp vel = -1 * 2 (flipped)
+        //         => The first output vel is consistent with previous end vel (-2)
+        //
+        //      b. New input that moves axis in positive direction:
+        //         vel_start = -2 (flipped)
+        //         target_data.vel = 1 * vel_start = -2 (no flipped)
+        //         output vel = 1 * intp vel = 1 * (-2) (no flipped)
+        //         => The first output vel is consistent with previous end vel (-2)
+        // 
+        // 2. If previous direction is positive, the sign of previous intp vel is not flipped.
+        //    Example:
+        //      Test input A:
+        //        * q_start: 0
+        //        * q_end: 10
+        //        * vel_start: 0
+        //        * vel_end: 2
+        //
+        //    Because it is already a positive segment, the ending intp vel is 2
+        //
+        //    a. New input that moves axis in negative direction
+        //       vel start = 2 (no flipped)
+        //       target_data.vel = -1 * vel_start = -2 (flipped)
+        //       output vel = -1 * intp vel = 2 (flipped)
+        //       => The first output vel is consistent with previous end vel (2)
+        //
+        //    b. New input that moves axis in positive direction again
+        //       vel start = 2 (no flipped)
+        //       target_data.vel = 1 * vel_start = 2 (no flipped)
+        //       output vel = 1 * intp vel = 2 (no flipped)
+        //       => The first output vel is consistent with previous end vel (2)
+        // 
+        let mut vel_start = vel_start;
+        if self.intp_data.vel != 0.0 {
+            if dir_prev < 0.0 {
+                vel_start = -self.intp_data.vel;
+            } else {
+                vel_start = self.intp_data.vel;
+            }
+        }
+
+        // Override intp pos end if the direction is revered
+        // The decision is similar as above comments, here is the example that explain the decision
+        // 
+        // a. Previous: axis moves in negative direction, Current: axis moves in negative direction
+        //    * Previous pos_end is negative
+        //    * Current direction is negative, flip previous pos_end, it becomes positive
+        //    * Doing interpolation in current direction, the output value is flipped again
+        //    => This makes the positive is consistent with previous segment (same for pos_offset)
+        let mut pos_offset = pos_offset;
+        if dir < 0.0 {
+            self.intp_data.pos_end = -self.intp_data.pos_end;
+            pos_offset = -pos_offset;
+        }
+
         // Use symmetric settings for min value and update target data struct
-        self.target_data.pos_offset = pos_offset.abs();
-        self.target_data.dist += dir * dist;
-        self.target_data.vel_start = vel_start;
-        self.target_data.vel_end = vel_end;
+        self.target_data.pos_offset = pos_offset;
+        self.target_data.dist = dir * displacement;
+        self.target_data.vel_start = dir * vel_start;
+        self.target_data.vel_end = dir * vel_end;
         self.target_data.vel_max = vel_max * (dir + 1.0) / 2.0 - vel_max * (dir - 1.0) / 2.0;
         self.target_data.vel_min = -self.target_data.vel_max;
         self.target_data.acc_start = 0.0;
