@@ -5,8 +5,9 @@ use serial_enumerator::get_serial_list;
 #[derive(Default)]
 pub(super) struct ConnectionWindow {
     selected_port: String,
-    curr_flag: bool,
-    target_flag: bool,
+    target: bool,
+    curr: bool,
+    request: Option<ViewRequest>,
 }
 
 impl ConnectionWindow {
@@ -36,46 +37,41 @@ impl UiView for ConnectionWindow {
                 });
             self.selected_port = curr_selected.to_owned();
 
-            let text_in_button = if self.curr_flag { "Stop" } else { "Start" };
+            let text_in_button = if self.curr { "Stop" } else { "Start" };
             let conn_button = Button::new(text_in_button);
 
             if ui
                 .add_enabled(!self.selected_port.is_empty(), conn_button)
                 .clicked()
             {
-                self.target_flag = !self.curr_flag;
+                self.target = !self.curr;
+                if self.target {
+                    self.request = Some(ViewRequest::ConnectionStart(self.selected_port.clone()));
+                } else {
+                    self.request = Some(ViewRequest::ConnectionStop);
+                }
             }
         });
     }
 
     fn take_request(&mut self) -> Option<ViewRequest> {
-        let result = if self.target_flag && !self.curr_flag {
-            // Rising edge, user asks to start connection
-            Some(ViewRequest::ConnectionStart(self.selected_port.clone()))
-        } else if !self.target_flag && self.curr_flag {
-            // Falling edge, user asks to stop connection
-            Some(ViewRequest::ConnectionStop)
-        } else {
-            None
-        };
-
-        result
+        self.request.take()
     }
 
     fn handle_event(&mut self, event: ViewEvent) {
         match event {
-            ViewEvent::ConnectionStatusUpdate(x) => self.curr_flag = x,
+            ViewEvent::ConnectionStatusUpdate(x) => self.curr = x,
             _ => (),
         }
     }
 
     fn reset(&mut self) {
         // Start or stop fails, reset flags, Ex: if user encounters stop failure,
-        // 1. target_flag = true, target
-        // 2. curr_flag = false, current
+        // 1. target = true
+        // 2. curr = false
         //
-        // target_flag will be set to curr_flag when error occurred, so user can
-        // try to start again
-        self.target_flag = self.curr_flag
+        // target will be set to curr when error occurred, so user can try to
+        // start again
+        self.target = self.curr
     }
 }
