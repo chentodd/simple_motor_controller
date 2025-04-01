@@ -1,5 +1,6 @@
 pub mod communication;
 pub mod main_window;
+pub mod mode_switch;
 pub mod position_command_parser;
 pub mod view;
 
