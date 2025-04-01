@@ -4,9 +4,18 @@ use eframe::egui::{Button, ScrollArea, Slider, TextEdit, Ui};
 #[derive(Default)]
 pub(super) struct CommandWindow {
     curr_control_mode: Operation,
-    velocity_command: f32,
-    position_command: String,
-    position_command_ready: bool,
+    request: Option<ViewRequest>,
+    // velocity command, unit: rpm
+    curr_vel_cmd: f32,
+    prev_vel_cmd: f32,
+    // position command format: '(dist, vel, vel_end);'
+    // Input data should be enclosed by parenthesis, and use ';' to indicate the
+    // end of one command block, and the unit of each data is as follows:
+    // 1. dist: rad
+    // 2. vel: rpm
+    // 3. vel_end: rpm, the end velocity of position command block, it is optional.
+    //    If it is not given, the end velocity will be treated as 0
+    pos_cmd: String,
 }
 
 impl CommandWindow {
@@ -19,25 +28,26 @@ impl CommandWindow {
 
     fn display_velocity_command_panel(&mut self, ui: &mut Ui) {
         ui.add(
-            Slider::new(&mut self.velocity_command, -3000.0..=3000.0)
-                .text("motor velocity cmd (rpm)"),
+            Slider::new(&mut self.curr_vel_cmd, -3000.0..=3000.0).text("motor velocity cmd (rpm)"),
         );
+
+        if self.curr_vel_cmd != self.prev_vel_cmd {
+            self.prev_vel_cmd = self.curr_vel_cmd;
+            self.request = Some(ViewRequest::VelocityControl(self.curr_vel_cmd));
+        }
     }
 
     fn display_position_command_panel(&mut self, ui: &mut Ui) {
         ScrollArea::vertical().max_height(64.0).show(ui, |ui| {
-            ui.add_sized(
-                ui.available_size(),
-                TextEdit::multiline(&mut self.position_command),
-            );
+            ui.add_sized(ui.available_size(), TextEdit::multiline(&mut self.pos_cmd));
         });
 
         let send_button = Button::new("Send");
         if ui
-            .add_enabled(!self.position_command.is_empty(), send_button)
+            .add_enabled(!self.pos_cmd.is_empty(), send_button)
             .clicked()
         {
-            self.position_command_ready = true;
+            self.request = Some(ViewRequest::PositionControl(self.pos_cmd.clone()));
         }
     }
 }
@@ -53,31 +63,27 @@ impl UiView for CommandWindow {
     }
 
     fn take_request(&mut self) -> Option<ViewRequest> {
-        match self.curr_control_mode {
-            Operation::IntpVel => Some(ViewRequest::VelocityControl(self.velocity_command)),
-            Operation::IntpPos => {
-                let ready = self.position_command_ready;
-                self.position_command_ready = false;
-                Some(ViewRequest::PositionControl((
-                    self.position_command.clone(),
-                    ready,
-                )))
-            }
-            _ => None,
-        }
+        self.request.take()
     }
 
     fn handle_event(&mut self, event: ViewEvent) {
         match event {
-            ViewEvent::ControlModeUpdate(mode) if mode != Operation::Stop => {
-                self.curr_control_mode = mode
+            ViewEvent::ControlModeUpdate((ok, mode)) => {
+                if ok {
+                    self.curr_control_mode = mode;
+                    if self.curr_control_mode == Operation::Stop {
+                        self.reset();
+                    }
+                }
             }
             _ => (),
         }
     }
 
     fn reset(&mut self) {
-        self.velocity_command = 0.0;
-        self.position_command_ready = false;
+        self.request = None;
+        self.curr_vel_cmd = 0.0;
+        self.prev_vel_cmd = 0.0;
+        self.pos_cmd.clear();
     }
 }
