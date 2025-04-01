@@ -105,7 +105,7 @@ pub enum ViewRequest {
     // A request that wants to control velocity from command window
     VelocityControl(f32),
     // A request that wants to control position from command window
-    PositionControl((String, bool)),
+    PositionControl(String),
 }
 
 #[derive(Clone)]
@@ -116,10 +116,10 @@ pub enum ViewEvent {
     // Send current connection status to connection windo
     ConnectionStatusUpdate(bool),
     // Send current operation mode to control mode window
-    ControlModeUpdate(Operation),
+    ControlModeUpdate((bool, Operation)),
     // Send internal operation mode request to control mode window and update
     // the tile of modal
-    InternalControlModeRequest((Operation, String)),
+    InternalStopModeRequest(String),
     // Send motor profile data to profile window to draw the graph
     ProfileDataUpdate(ProfileData),
 }
