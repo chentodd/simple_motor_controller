@@ -13,7 +13,7 @@ use serialport::SerialPort;
 use utils::*;
 
 use crate::proto::command_::{CommandRx, CommandTx};
-use crate::proto::motor_::{MotorRx, Operation};
+use crate::proto::motor_::{MotorRx, MotorTx, Operation};
 
 pub struct Settings;
 
@@ -94,7 +94,8 @@ pub struct Communication {
     command_tx_recv: Option<Receiver<CommandTx>>,
     keep_rx_alive: Arc<AtomicBool>,
     thread_handles: Vec<JoinHandle<()>>,
-    motor_rx_data: Option<MotorRx>,
+    motor_rx_data: MotorRx,
+    motor_tx_data: Option<MotorTx>,
 }
 
 impl Drop for Communication {
@@ -112,7 +113,8 @@ impl Communication {
             command_tx_recv: None,
             keep_rx_alive: Arc::new(AtomicBool::new(false)),
             thread_handles: Vec::new(),
-            motor_rx_data: None,
+            motor_rx_data: MotorRx::default(),
+            motor_tx_data: None,
         }
     }
 
@@ -121,7 +123,8 @@ impl Communication {
         self.command_tx_recv = None;
         self.keep_rx_alive.store(false, Ordering::SeqCst);
         self.thread_handles.clear();
-        self.motor_rx_data = None;
+        self.motor_rx_data = MotorRx::default();
+        self.motor_tx_data = None;
     }
 
     pub fn start(&mut self, port_name: &str) -> Result<(), Error> {
@@ -199,14 +202,12 @@ impl Communication {
     }
 
     pub fn set_rx_data(&mut self, data: MotorRx) {
-        if let Some(prev_data) = self.motor_rx_data.as_ref() {
-            if *prev_data == data {
-                return;
-            }
+        if self.motor_rx_data == data {
+            return;
         }
 
         let operation = data.operation;
-        self.motor_rx_data = Some(data.clone());
+        self.motor_rx_data = data.clone();
 
         let mut rx_data = CommandRx::default();
         rx_data.set_left_motor(data);
@@ -224,14 +225,16 @@ impl Communication {
         }
     }
 
-    pub fn get_tx_data(&self) -> Option<CommandTx> {
+    pub fn get_tx_data(&mut self) -> Option<MotorTx> {
         if let Some(recv) = self.command_tx_recv.as_ref() {
             if let Ok(data) = recv.try_recv() {
-                return Some(data);
+                self.motor_tx_data = Some(data.left_motor.clone());
+                return Some(data.left_motor.clone());
             }
         }
 
-        None
+        // Return previous data if we can't get latest data from channel
+        self.motor_tx_data.clone()
     }
 
     fn tx_task(
