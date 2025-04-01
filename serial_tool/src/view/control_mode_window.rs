@@ -1,12 +1,15 @@
 use crate::{proto::motor_::Operation, UiView, ViewEvent, ViewRequest, DEFAULT_CONTROL_MODE};
 use eframe::egui::{self, ComboBox, Id, ProgressBar, Ui, Widget};
+use log::debug;
 
 #[derive(Default)]
 pub(super) struct ControlModeWindow {
     request: Option<ViewRequest>,
-    curr_control_mode: Operation,
     target_control_mode: Operation,
-    internal_request: Option<(Operation, String)>,
+    curr_control_mode: Operation,
+    backup_control_mode: Operation,
+    internal_request: Option<String>,
+    wait_mode_switch: bool,
     mode_switch_progress: Option<f32>,
 }
 
@@ -30,15 +33,24 @@ impl UiView for ControlModeWindow {
                 ui.selectable_value(&mut self.target_control_mode, Operation::IntpVel, "IntpVel");
             });
 
-        // Target mode is requested by internal functions
-        let modal_title = if let Some((mode, title)) = self.internal_request.as_ref() {
-            self.target_control_mode = *mode;
+        // Check if we need to do mode switch
+        let modal_title = if let Some(title) = self.internal_request.take() {
+            self.target_control_mode = Operation::Stop;
             title.to_string()
         } else {
             "Switch control mode".to_string()
         };
 
         if self.target_control_mode != self.curr_control_mode {
+            if !self.wait_mode_switch {
+                self.backup_control_mode = self.curr_control_mode;
+                self.wait_mode_switch = true;
+            }
+        } else {
+            self.wait_mode_switch = false;
+        }
+
+        if self.wait_mode_switch {
             egui::Modal::new(Id::new(&modal_title)).show(ui.ctx(), |ui| {
                 ui.heading(format!("{modal_title}, Are you sure?"));
                 egui::Sides::new().show(
@@ -52,8 +64,8 @@ impl UiView for ControlModeWindow {
 
                         if ui.button("No").clicked() {
                             self.request = Some(ViewRequest::ModeCancel);
-                            self.target_control_mode = self.curr_control_mode;
-
+                            self.target_control_mode = self.backup_control_mode;
+                            self.wait_mode_switch = false;
                             self.mode_switch_progress = None;
                             self.internal_request = None;
                         }
@@ -68,7 +80,7 @@ impl UiView for ControlModeWindow {
 
                 ProgressBar::new(progress).ui(ui);
 
-                if self.target_control_mode != self.curr_control_mode {
+                if self.wait_mode_switch {
                     self.mode_switch_progress = Some(progress + 0.001);
                     ui.ctx().request_repaint();
                 } else {
@@ -79,15 +91,20 @@ impl UiView for ControlModeWindow {
     }
 
     fn take_request(&mut self) -> Option<ViewRequest> {
+        if self.request.is_some() {
+            debug!("{:?}", self.request);
+        }
         self.request.take()
     }
 
     fn handle_event(&mut self, event: ViewEvent) {
         match event {
-            ViewEvent::ControlModeUpdate(mode) if mode != Operation::Stop => {
-                self.curr_control_mode = mode
+            ViewEvent::ControlModeUpdate((ok, mode)) => {
+                if ok {
+                    self.curr_control_mode = mode;
+                }
             }
-            ViewEvent::InternalControlModeRequest(x) => {
+            ViewEvent::InternalStopModeRequest(x) => {
                 self.internal_request = Some(x);
             }
             _ => (),
@@ -98,10 +115,10 @@ impl UiView for ControlModeWindow {
         // Fail to switch control mode, reset target_control_mode, Ex: if user fails to
         // switch to velocity mode:
         // 1. target_control_mode = velocity, target
-        // 2. curr_control_mode = position, current
+        // 2. backup_control_mode = position, current
         //
-        // target_control_mode will be set to curr_control_mode when error occurred,
+        // target_control_mode will be set to backup_control_mode when error occurred,
         // so user can try to switch control mode again again
-        self.target_control_mode = self.curr_control_mode;
+        self.target_control_mode = self.backup_control_mode;
     }
 }
