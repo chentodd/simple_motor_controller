@@ -2,7 +2,6 @@
 #![no_main]
 
 use core::f32;
-use embassy_stm32::timer::GeneralInstance4Channel;
 use fw::encoder::Encoder;
 use fw::motion::Motion;
 use fw::motor::BldcMotor24H;
@@ -23,7 +22,7 @@ use utils::*;
 use defmt::debug;
 use {defmt_rtt as _, panic_probe as _};
 
-use heapless::Vec;
+use heapless::{Deque, Vec};
 use micropb::{MessageEncode, PbEncoder};
 
 use embassy_executor::{InterruptExecutor, Spawner};
@@ -44,6 +43,7 @@ use embassy_stm32::{bind_interrupts, usart};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::{CountingMode, Timer as LLTimer};
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
+use embassy_stm32::timer::GeneralInstance4Channel;
 
 use embassy_stm32::usart::{Uart, UartRx, UartTx};
 
@@ -104,37 +104,69 @@ async fn motion_task(
     let mut right_cmd_subscriber = RIGHT_COMMAND_CHANNEL.subscriber().unwrap();
     let motion_data_sender = MOTION_DATA.sender();
 
+    let mut left_cmd_queue = Deque::<MotorRx, 32>::new();
+    let mut right_cmd_queue = Deque::<MotorRx, 32>::new();
+
     let mut left_data = MotorTx::default();
     let mut right_data = MotorTx::default();
     let mut tx_data = CommandTx::default();
     loop {
         TIMER_SIGNAL.wait().await;
 
-        if left_motion_controller.ready() {
-            if let Some(left_command) = left_cmd_subscriber.try_next_message() {
-                match left_command {
-                    WaitResult::Lagged(_val) => {
-                        #[cfg(feature = "debug-motion")]
-                        debug!("left command lag: {}", _val);
+        if let Some(left_cmd) = left_cmd_subscriber.try_next_message() {
+            match left_cmd {
+                WaitResult::Lagged(_val) => {
+                    #[cfg(feature = "debug-motion")]
+                    debug!("left command lag: {}", _val);
+                }
+                WaitResult::Message(cmd) => {
+                    if cmd.operation == Operation::Stop {
+                        left_cmd_queue.clear();
                     }
-                    WaitResult::Message(command) => {
-                        left_motion_controller.set_command(command);
-                    }
+                    let _ = left_cmd_queue.push_back(cmd);
                 }
             }
         }
 
-        if right_motion_controller.ready() {
-            if let Some(right_command) = right_cmd_subscriber.try_next_message() {
-                match right_command {
-                    WaitResult::Lagged(_val) => {
-                        #[cfg(feature = "debug-motion")]
-                        debug!("right command lag: {}", _val);
-                    }
-                    WaitResult::Message(command) => {
-                        right_motion_controller.set_command(command);
-                    }
+        if let Some(right_cmd) = right_cmd_subscriber.try_next_message() {
+            match right_cmd {
+                WaitResult::Lagged(_val) => {
+                    #[cfg(feature = "debug-motion")]
+                    debug!("right command lag: {}", _val);
                 }
+                WaitResult::Message(cmd) => {
+                    if cmd.operation == Operation::Stop {
+                        right_cmd_queue.clear();
+                    }
+                    let _ = right_cmd_queue.push_back(cmd);
+                }
+            }
+        }
+
+        let should_abort = left_cmd_queue.front().and_then(|x| {
+            if x.operation == Operation::Stop {
+                Some(())
+            } else {
+                None
+            }
+        });
+
+        if left_motion_controller.ready() || should_abort.is_some() {
+            if let Some(cmd) = left_cmd_queue.pop_front() {
+                left_motion_controller.set_command(cmd);
+            }
+        }
+
+        let should_abort = right_cmd_queue.front().and_then(|x| {
+            if x.operation == Operation::Stop {
+                Some(())
+            } else {
+                None
+            }
+        });
+        if right_motion_controller.ready() || should_abort.is_some() {
+            if let Some(cmd) = right_cmd_queue.pop_front() {
+                right_motion_controller.set_command(cmd);
             }
         }
 
