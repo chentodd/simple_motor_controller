@@ -143,28 +143,15 @@ async fn motion_task(
             }
         }
 
-        let should_abort = left_cmd_queue.front().and_then(|x| {
-            if x.operation == Operation::Stop {
-                Some(())
-            } else {
-                None
-            }
-        });
-
-        if left_motion_controller.ready() || should_abort.is_some() {
+        let first_mode = left_cmd_queue.front().and_then(|x| Some(x.operation));
+        if left_motion_controller.can_send_cmd(first_mode) {
             if let Some(cmd) = left_cmd_queue.pop_front() {
                 left_motion_controller.set_command(cmd);
             }
         }
 
-        let should_abort = right_cmd_queue.front().and_then(|x| {
-            if x.operation == Operation::Stop {
-                Some(())
-            } else {
-                None
-            }
-        });
-        if right_motion_controller.ready() || should_abort.is_some() {
+        let first_mode = right_cmd_queue.front().and_then(|x| Some(x.operation));
+        if right_motion_controller.can_send_cmd(first_mode) {
             if let Some(cmd) = right_cmd_queue.pop_front() {
                 right_motion_controller.set_command(cmd);
             }

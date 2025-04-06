@@ -25,33 +25,15 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1
         }
     }
 
-    pub fn ready(&mut self) -> bool {
-        let is_ready = match self.operation {
-            Operation::IntpPos => {
-                #[cfg(feature = "debug-motion")]
-                debug!(
-                    "ready, pos, {}",
-                    self.s_curve_intper.get_intp_status() as u8
-                );
-
-                self.s_curve_intper.get_intp_status() == InterpolationStatus::Done
-            }
-            Operation::IntpVel => {
-                #[cfg(feature = "debug-motion")]
-                debug!("ready, vel, {}", self.motor.get_error());
-
-                self.motor.pid.get_error().abs() <= 60.0
-            }
-            Operation::Stop => true,
-            _ => false,
-        };
-
-        if is_ready && self.abort_request {
-            self.abort_request = false;
-            self.operation = Operation::Stop;
+    pub fn can_send_cmd(&mut self, mode: Option<Operation>) -> bool {
+        match mode {
+            Some(mode) => match mode {
+                Operation::IntpPos => self.ready(),
+                Operation::IntpVel | Operation::Stop => true,
+                _ => false,
+            },
+            None => false,
         }
-
-        is_ready
     }
 
     pub fn get_operation(&self) -> Operation {
@@ -138,5 +120,34 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1
             vel_end,
             vel
         );
+    }
+
+    fn ready(&mut self) -> bool {
+        let is_ready = match self.operation {
+            Operation::IntpPos => {
+                #[cfg(feature = "debug-motion")]
+                debug!(
+                    "ready, pos, {}",
+                    self.s_curve_intper.get_intp_status() as u8
+                );
+
+                self.s_curve_intper.get_intp_status() == InterpolationStatus::Done
+            }
+            Operation::IntpVel => {
+                #[cfg(feature = "debug-motion")]
+                debug!("ready, vel, {}", self.motor.get_error());
+
+                self.motor.pid.get_error().abs() <= 60.0
+            }
+            Operation::Stop => true,
+            _ => false,
+        };
+
+        if is_ready && self.abort_request {
+            self.abort_request = false;
+            self.operation = Operation::Stop;
+        }
+
+        is_ready
     }
 }
