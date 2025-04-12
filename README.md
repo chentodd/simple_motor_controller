@@ -16,6 +16,11 @@ A small project that controls motor in velocity and position mode:
           - intp vel (unit: rad/s)
           - intp acc (unit: rad/s^2)
           - intp jerk (unit: rad/s^3)
+         
+## Hardware
+
+- Motor: Nidec 24H BLDC motor 8 pins
+- Board: stm32f401re nucleo development board
 
 ## TODOS
 
