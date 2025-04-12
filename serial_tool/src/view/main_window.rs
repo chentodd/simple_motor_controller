@@ -4,9 +4,9 @@ use eframe::{
 };
 
 use crate::{
-    communication::Communication,
-    mode_switch::ModeSwitch,
-    position_command_parser::CommandParser,
+    controller::communication::Communication,
+    controller::mode_switch::ModeSwitch,
+    controller::position_command_parser::CommandParser,
     proto::motor_::{MotorRx, MotorTx, Operation},
     view::window_wrapper::{WindowType, WindowWrapper},
     ErrorType, ProfileData, ViewEvent, ViewRequest,
