@@ -1,6 +1,7 @@
 #[cfg(feature = "debug-motor")]
 use defmt::debug;
 
+use defmt::info;
 use embassy_stm32::gpio::Output;
 use embassy_stm32::timer::low_level::OutputPolarity;
 use embassy_stm32::timer::simple_pwm::SimplePwmChannel;

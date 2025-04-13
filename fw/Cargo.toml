@@ -4,32 +4,39 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-embassy-stm32 = { version = "0.1.0", git = "https://github.com/embassy-rs/embassy.git", features = ["defmt", "stm32f401re", "unstable-pac", "memory-x", "time-driver-tim1", "exti", "chrono"] }
-embassy-executor = { version = "0.6.2", git = "https://github.com/embassy-rs/embassy.git", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
-embassy-time = { version = "0.3.2", git = "https://github.com/embassy-rs/embassy.git", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
-embassy-futures = { version = "0.1.1", git = "https://github.com/embassy-rs/embassy.git" }
-embassy-sync = { version = "0.6.0", git = "https://github.com/embassy-rs/embassy.git" }
+cortex-m            = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m-rt         = { version = "0.7.0" }
 
-defmt = "0.3.8"
-defmt-rtt = "0.4.1"
+embassy-stm32       = { version = "0.2.0", features = ["defmt", "stm32f303vc", "unstable-pac", "memory-x", "time-driver-tim1", "exti", "chrono"] }
+embassy-executor    = { version = "0.7.0", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-time        = { version = "0.4.0", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-futures     = { version = "0.1.1" }
+embassy-sync        = { version = "0.6.0" }
+embassy-usb         = { version = "0.4.0", features = ["defmt"] }
 
-cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
-cortex-m-rt = "0.7.0"
-panic-probe = { version = "0.3.2", features = ["print-defmt"] }
+embedded-io         = { version = "0.6.1" }
+embedded-io-async   = { version = "0.6.1" }
 
-embedded-io = "0.6.1"
-embedded-io-async = "0.6.1"
-heapless = "0.8.0"
-static_cell = "2.1.0"
-micropb = { version = "0.1.0", features = ["container-heapless"] }
-never = { version = "0.1.0", default-features = false }
-num-traits = { version = "0.2", default-features = false }
+panic-probe         = { version = "0.3.2", features = ["print-defmt"] }
 
-utils = { version = "0.1.0", path = "../utils", default-features = false }
-s_curve = { version = "0.1.0", path = "../s_curve", default-features = false }
+postcard-rpc        = { version = "0.11",  features = ["embassy-usb-0_4-server"] }
+postcard            = { version = "1.0.10" }
+postcard-schema     = { version = "0.2.1", features = ["derive"] }
+serde               = { version = "1.0.219", default-features = false, features = ["derive"] }
 
-[build-dependencies]
-micropb-gen = "0.1.0"
+defmt               = { version = "0.3.8" }
+defmt-rtt           = { version = "0.4.1" }
+
+static_cell         = { version = "2.1" }
+
+heapless            = { version = "0.8.0" }
+
+never               = { version = "0.1.0", default-features = false }
+
+num-traits          = { version = "0.2", default-features = false }
+
+utils               = { version = "0.1.0", path = "../utils", default-features = false }
+s_curve             = { version = "0.1.0", path = "../s_curve", default-features = false }
 
 [features]
 default = []

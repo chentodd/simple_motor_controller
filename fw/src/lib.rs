@@ -5,12 +5,6 @@ pub mod motion;
 pub mod motor;
 pub mod pid;
 
-pub mod proto {
-    #![allow(clippy::all)]
-    #![allow(nonstandard_style, unused, irrefutable_let_patterns)]
-    include!("proto_packet.rs");
-}
-
 use core::f32;
 
 pub fn rpm_to_rad_s(val: f32) -> f32 {
