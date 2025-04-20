@@ -1,83 +1,107 @@
-#[cfg(feature = "debug-motion")]
-use defmt::debug;
-
 use embassy_stm32::timer::GeneralInstance4Channel;
-use crate::motor::*;
+use embassy_sync::{
+    blocking_mutex::raw::RawMutex,
+    pubsub::{Subscriber, WaitResult},
+};
+use heapless::Deque;
+use protocol::{ControlMode, MotorCommand, MotorProcessData, PositionCommand};
 
+use crate::{motor::*, rad_s_to_rpm, rpm_to_rad_s};
 use s_curve::*;
 
-pub struct Motion<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> {
-    pub motor: BldcMotor24H<'a, T1, T2>,
-    pub s_curve_intper: SCurveInterpolator,
-    // abort_request: bool,
+enum AbortProcessState {
+    Idle,
+    Ignite,
+    Running,
+    Finished,
 }
 
-impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1, T2> {
-    pub fn new(s_curve_intper: SCurveInterpolator, motor: BldcMotor24H<'a, T1, T2>) -> Self {
+pub struct Motion<
+    'a,
+    M: RawMutex,
+    T1: GeneralInstance4Channel,
+    T2: GeneralInstance4Channel,
+    const QUEUE_SIZE: usize,
+> {
+    pub motor: BldcMotor24H<'a, T1, T2>,
+    pub s_curve_intper: SCurveInterpolator,
+    abort_process_state: AbortProcessState,
+    cmd_sub: Subscriber<'a, M, MotorCommand, QUEUE_SIZE, 1, 1>,
+    cmd_queue: Deque<MotorCommand, QUEUE_SIZE>,
+    control_mode: ControlMode,
+}
+
+impl<
+        'a,
+        M: RawMutex,
+        T1: GeneralInstance4Channel,
+        T2: GeneralInstance4Channel,
+        const QUEUE_SIZE: usize,
+    > Motion<'a, M, T1, T2, QUEUE_SIZE>
+{
+    pub fn new(
+        s_curve_intper: SCurveInterpolator,
+        motor: BldcMotor24H<'a, T1, T2>,
+        cmd_sub: Subscriber<'a, M, MotorCommand, QUEUE_SIZE, 1, 1>,
+    ) -> Self {
         Self {
             motor,
             s_curve_intper,
-            // abort_request: false,
+            abort_process_state: AbortProcessState::Idle,
+            cmd_sub,
+            cmd_queue: Deque::new(),
+            control_mode: ControlMode::Velocity,
         }
     }
 
-    // pub fn can_send_cmd(&mut self, mode: Option<Operation>) -> bool {
-    //     match mode {
-    //         Some(mode) => match mode {
-    //             Operation::IntpPos => self.ready(),
-    //             Operation::IntpVel | Operation::Stop => true,
-    //             _ => false,
-    //         },
-    //         None => false,
-    //     }
-    // }
+    pub fn read_cmd_from_queue(&mut self) {
+        if let Some(left_cmd) = self.cmd_sub.try_next_message() {
+            match left_cmd {
+                WaitResult::Message(cmd) => {
+                    if cmd == MotorCommand::Abort {
+                        self.cmd_queue.clear();
+                    }
+                    self.set_command(cmd);
+                }
+                _ => (),
+            }
+        }
+    }
 
-    // pub fn get_operation(&self) -> Operation {
-    //     self.operation
-    // }
+    pub fn is_queue_full(&self) -> bool {
+        self.cmd_queue.is_full()
+    }
 
-    // pub fn set_command(&mut self, command: MotorRx) {
-    //     // Record operation if it is not Stop operation. The Stop
-    //     // operation will only be set if motor is stopped
-    //     if command.operation != Operation::Stop {
-    //         self.operation = command.operation;
-    //     }
-
-    //     match command.operation {
-    //         Operation::IntpPos => {
-    //             self.set_pos_command(&command);
-    //         }
-    //         Operation::IntpVel => {
-    //             self.motor.set_target_velocity(command.target_vel);
-
-    //             #[cfg(feature = "debug-motion")]
-    //             debug!("set_command, intp vel, {}", command.target_vel);
-    //         }
-    //         Operation::PidVel => todo!(),
-    //         Operation::PidTune => todo!(),
-    //         Operation::Stop => self.abort(),
-    //         _ => (),
-    //     }
-    // }
-
-    pub fn set_command(&mut self, target_vel: f32) {
-        self.motor.set_target_velocity(target_vel);
+    pub fn get_motor_process_data(&self) -> MotorProcessData {
+        let s_curve_intp_data = self.s_curve_intper.get_intp_data();
+        MotorProcessData {
+            control_mode_display: self.control_mode,
+            actual_pos: self.motor.encoder.get_act_position_in_rad(),
+            actual_vel: self.motor.encoder.get_act_velocity_in_rpm(),
+            intp_pos: s_curve_intp_data.pos,
+            intp_vel: s_curve_intp_data.vel,
+            intp_acc: s_curve_intp_data.acc,
+            intp_jerk: s_curve_intp_data.jerk,
+        }
     }
 
     pub fn run(&mut self) {
-        // // Interpolate position command if current operation if IntpPos and update
-        // // target velocity in pid velocity control loop
-        // if self.operation == Operation::IntpPos
-        //     && self.s_curve_intper.get_intp_status() != InterpolationStatus::Done
-        // {
-        //     self.s_curve_intper.interpolate();
+        // Process abort process if controller gets abort request
+        self.process_abort();
 
-        //     let intp_vel = rad_s_to_rpm(self.s_curve_intper.get_intp_data().vel);
-        //     self.motor.set_target_velocity(intp_vel);
+        // Interpolate position command if current operation if IntpPos and update
+        // target velocity in pid velocity control loop
+        if self.control_mode == ControlMode::Position
+            && self.s_curve_intper.get_intp_status() != InterpolationStatus::Done
+        {
+            self.s_curve_intper.interpolate();
 
-        //     #[cfg(feature = "debug-motion")]
-        //     debug!("run, intp pos, {}", intp_vel);
-        // }
+            let intp_vel = rad_s_to_rpm(self.s_curve_intper.get_intp_data().vel);
+            self.motor.set_target_velocity(intp_vel);
+
+            #[cfg(feature = "debug-motion")]
+            debug!("run, intp pos, {}", intp_vel);
+        }
 
         // The pid velocity control loop will always be run since we need to drive
         // the motor with velocity command.
@@ -87,67 +111,99 @@ impl<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> Motion<'a, T1
         self.motor.run_pid_velocity_control();
     }
 
-    // fn abort(&mut self) {
-    //     self.abort_request = true;
-    //     match self.operation {
-    //         Operation::IntpPos => {
-    //             self.s_curve_intper.stop();
-    //         }
-    //         Operation::IntpVel => {
-    //             self.motor.set_target_velocity(0.0);
-    //         }
-    //         Operation::PidVel => todo!(),
-    //         Operation::PidTune => todo!(),
-    //         _ => (),
-    //     }
-    // }
+    fn set_command(&mut self, mut cmd: MotorCommand) {
+        if self.cmd_queue.is_full() {
+            return;
+        }
 
-    // fn set_pos_command(&mut self, command: &MotorRx) {
-    //     let vel = rpm_to_rad_s(command.target_vel);
-    //     let vel_start = rpm_to_rad_s(self.motor.encoder.get_act_velocity_in_rpm());
-    //     let vel_end = rpm_to_rad_s(command.target_vel_end);
+        // cmd_queue is used as a backup when command can't be set
+        let _ = self.cmd_queue.push_back(cmd);
+        let ready_to_set = match self.control_mode {
+            ControlMode::Velocity | ControlMode::Stop => true,
+            ControlMode::Position => self.ready(),
+        };
 
-    //     let pos_offset =
-    //         self.motor.encoder.get_act_position_in_rad() - self.s_curve_intper.get_intp_data().pos;
-    //     self.s_curve_intper
-    //         .set_target(pos_offset, command.target_dist, vel_start, vel_end, vel);
+        if ready_to_set {
+            // Ok to set command, read cmd from queue
+            cmd = self.cmd_queue.pop_front().unwrap();
+            match cmd {
+                MotorCommand::Abort => {
+                    self.abort_process_state = AbortProcessState::Ignite;
+                    match self.control_mode {
+                        ControlMode::Position => self.s_curve_intper.stop(),
+                        ControlMode::Velocity => self.motor.set_target_velocity(0.0),
+                        _ => (),
+                    }
+                }
+                MotorCommand::PositionCommand(x) => {
+                    self.control_mode = ControlMode::Position;
+                    self.set_pos_command(x);
+                }
+                MotorCommand::VelocityCommand(x) => {
+                    self.control_mode = ControlMode::Velocity;
+                    self.motor.set_target_velocity(x);
+                }
+            }
+        }
+    }
 
-    //     #[cfg(feature = "debug-motion")]
-    //     debug!(
-    //         "set_pos_command, {}, {}, {}, {}",
-    //         command.target_dist,
-    //         self.motor.encoder.get_act_velocity_in_rpm(),
-    //         vel_end,
-    //         vel
-    //     );
-    // }
+    fn process_abort(&mut self) {
+        match self.abort_process_state {
+            AbortProcessState::Ignite => self.abort_process_state = AbortProcessState::Running,
+            AbortProcessState::Running => {
+                if self.ready() {
+                    self.abort_process_state = AbortProcessState::Finished;
+                }
+            }
+            AbortProcessState::Finished => {
+                // Stop control mode will be set if motor is standstill
+                self.abort_process_state = AbortProcessState::Idle;
+                self.control_mode = ControlMode::Stop;
+            }
+            _ => (),
+        }
+    }
 
-    // fn ready(&mut self) -> bool {
-    //     let is_ready = match self.operation {
-    //         Operation::IntpPos => {
-    //             #[cfg(feature = "debug-motion")]
-    //             debug!(
-    //                 "ready, pos, {}",
-    //                 self.s_curve_intper.get_intp_status() as u8
-    //             );
+    fn set_pos_command(&mut self, cmd: PositionCommand) {
+        let vel_max = rpm_to_rad_s(cmd.vel_max);
+        let vel_start = rpm_to_rad_s(self.motor.encoder.get_act_velocity_in_rpm());
+        let vel_end = rpm_to_rad_s(cmd.vel_end);
 
-    //             self.s_curve_intper.get_intp_status() == InterpolationStatus::Done
-    //         }
-    //         Operation::IntpVel => {
-    //             #[cfg(feature = "debug-motion")]
-    //             debug!("ready, vel, {}", self.motor.get_error());
+        let pos_offset =
+            self.motor.encoder.get_act_position_in_rad() - self.s_curve_intper.get_intp_data().pos;
+        self.s_curve_intper
+            .set_target(pos_offset, cmd.displacement, vel_start, vel_end, vel_max);
 
-    //             self.motor.pid.get_error().abs() <= 60.0
-    //         }
-    //         Operation::Stop => true,
-    //         _ => false,
-    //     };
+        #[cfg(feature = "debug-motion")]
+        debug!(
+            "set_pos_command, {}, {}, {}, {}",
+            command.target_dist,
+            self.motor.encoder.get_act_velocity_in_rpm(),
+            vel_end,
+            vel
+        );
+    }
 
-    //     if is_ready && self.abort_request {
-    //         self.abort_request = false;
-    //         self.operation = Operation::Stop;
-    //     }
+    fn ready(&mut self) -> bool {
+        let is_ready = match self.control_mode {
+            ControlMode::Position => {
+                #[cfg(feature = "debug-motion")]
+                debug!(
+                    "ready, pos, {}",
+                    self.s_curve_intper.get_intp_status() as u8
+                );
 
-    //     is_ready
-    // }
+                self.s_curve_intper.get_intp_status() == InterpolationStatus::Done
+            }
+            ControlMode::Velocity => {
+                #[cfg(feature = "debug-motion")]
+                debug!("ready, vel, {}", self.motor.get_error());
+
+                self.motor.pid.get_error().abs() <= 60.0
+            }
+            ControlMode::Stop => true,
+        };
+
+        is_ready
+    }
 }
