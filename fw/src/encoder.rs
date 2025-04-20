@@ -1,6 +1,5 @@
 use core::f32::consts::PI;
 
-use defmt::info;
 use embassy_stm32::timer::qei::*;
 use embassy_stm32::timer::GeneralInstance4Channel;
 use embassy_stm32::timer::{Channel1Pin, Channel2Pin};
@@ -62,6 +61,5 @@ impl<'a, T: GeneralInstance4Channel, const COUNTS_PER_REV: u16> Encoder<'a, T, C
         self.curr_qei_count = self.qei.count() as i16;
         self.curr_enc_count += self.curr_qei_count.wrapping_sub(self.prev_qei_count) as i32;
         self.prev_qei_count = self.curr_qei_count;
-        // info!("count: {}, {}", self.curr_enc_count, self.curr_qei_count);
     }
 }
