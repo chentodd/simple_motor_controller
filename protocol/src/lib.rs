@@ -31,7 +31,7 @@ topics! {
 }
 
 
-#[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Clone, Copy)]
 pub enum ControlMode {
     Position,
     Velocity,
@@ -40,7 +40,14 @@ pub enum ControlMode {
 
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
 pub enum CommandError {
-    PositionBufferFull,
+    BufferFull(MotorId),
+}
+
+#[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Clone, Copy)]
+pub struct PositionCommand {
+    pub displacement: f32,
+    pub vel_max: f32,
+    pub vel_end: f32,
 }
 
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
@@ -49,21 +56,14 @@ pub enum MotorId {
     Right,
 }
 
-#[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Clone, Copy)]
 pub enum MotorCommand {
-    ControlMode(ControlMode),
+    Abort,
     VelocityCommand(f32),
     PositionCommand(PositionCommand)
 }
 
-#[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
-pub struct PositionCommand {
-    pub displacement: f32,
-    pub max_vel: f32,
-    pub end_vel: f32,
-}
-
-#[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Clone, Copy)]
 pub struct MotorProcessData {
     pub control_mode_display: ControlMode,
     pub actual_pos: f32,
