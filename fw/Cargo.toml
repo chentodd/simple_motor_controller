@@ -35,12 +35,17 @@ never               = { version = "0.1.0", default-features = false }
 
 num-traits          = { version = "0.2", default-features = false }
 
-utils               = { version = "0.1.0", path = "../utils", default-features = false }
 s_curve             = { version = "0.1.0", path = "../s_curve", default-features = false }
+protocol            = { version = "0.1.0", path = "../protocol" }
+
+[profile.release]
+debug = 2
+lto = true
+opt-level = 'z'
+codegen-units = 1
+incremental = false
 
 [features]
 default = []
-debug-rx = []
-debug-tx = []
 debug-motor = []
 debug-motion = []
