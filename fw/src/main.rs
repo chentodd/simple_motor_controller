@@ -1,51 +1,123 @@
 #![no_std]
 #![no_main]
 
-use core::f32;
-use defmt::info;
+use defmt::error;
+use embassy_executor::{InterruptExecutor, Spawner};
+use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, ThreadModeRawMutex};
+use embassy_sync::pubsub::{PubSubChannel, Publisher};
+use embassy_sync::signal::Signal;
+use embassy_sync::watch::{Receiver, Sender as WatchSender, Watch};
+use embassy_time::Timer;
+use embassy_usb::{Config, UsbDevice};
+
+use embassy_stm32::bind_interrupts;
+use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
+use embassy_stm32::interrupt;
+use embassy_stm32::interrupt::{InterruptExt, Priority};
+use embassy_stm32::pac;
+use embassy_stm32::peripherals::{self, TIM2, TIM3, TIM4, USB};
+use embassy_stm32::time::Hertz;
+use embassy_stm32::timer::low_level::{CountingMode, Timer as LLTimer};
+use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
+use embassy_stm32::usb;
+
+use {defmt_rtt as _, panic_probe as _};
+
+use postcard_rpc::{
+    define_dispatch,
+    header::VarHeader,
+    server::{
+        impls::embassy_usb_v0_4::{
+            dispatch_impl::{WireRxBuf, WireRxImpl, WireSpawnImpl, WireStorage, WireTxImpl},
+            PacketBuffers,
+        },
+        Dispatch, Sender, Server,
+    },
+};
+
+use static_cell::ConstStaticCell;
+
 use fw::encoder::Encoder;
 use fw::motion::Motion;
 use fw::motor::BldcMotor24H;
 use fw::pid::Pid;
 use fw::rpm_to_rad_s;
-
+use protocol::*;
 use s_curve::*;
-// use utils::*;
 
-#[cfg(any(
-    feature = "debug-rx",
-    feature = "debug-tx",
-    feature = "debug-motor",
-    feature = "debug-motion"
-))]
-use defmt::debug;
-use {defmt_rtt as _, panic_probe as _};
-
-use embassy_executor::{InterruptExecutor, Spawner};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-// use embassy_sync::pubsub::{PubSubChannel, WaitResult};
-use embassy_sync::signal::Signal;
-// use embassy_sync::watch::Watch;
-use embassy_time::Timer;
-
-use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
-use embassy_stm32::interrupt;
-use embassy_stm32::interrupt::{InterruptExt, Priority};
-use embassy_stm32::pac;
-use embassy_stm32::peripherals::{TIM2, TIM3, TIM4};
-// use embassy_stm32::{bind_interrupts, usart};
-
-use embassy_stm32::time::Hertz;
-use embassy_stm32::timer::low_level::{CountingMode, Timer as LLTimer};
-use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
-// use embassy_stm32::timer::GeneralInstance4Channel;
-
+// control loop
 const PERIOD_S: f32 = 0.005;
 const PWM_HZ: u32 = 20_000;
 const VEL_LIMIT_RPM: f32 = 4000.0;
+const MOTION_CMD_QUEUE_SIZE: usize = 32;
 
 static TIMER_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 static EXECUTOR_TIMER: InterruptExecutor = InterruptExecutor::new();
+static LEFT_MOTOR_CMD_CHANNEL: PubSubChannel<
+    CriticalSectionRawMutex,
+    MotorCommand,
+    MOTION_CMD_QUEUE_SIZE,
+    1,
+    1,
+> = PubSubChannel::new();
+static RIGHT_MOTOR_CMD_CHANNEL: PubSubChannel<
+    CriticalSectionRawMutex,
+    MotorCommand,
+    MOTION_CMD_QUEUE_SIZE,
+    1,
+    1,
+> = PubSubChannel::new();
+static LEFT_MOTION_QUEUE_STATUS_WATCH: Watch<CriticalSectionRawMutex, bool, 1> = Watch::new();
+static RIGHT_MOTION_QUEUE_STATUS_WATCH: Watch<CriticalSectionRawMutex, bool, 1> = Watch::new();
+
+// postcard-rpc
+pub struct Context {
+    pub left_motor_cmd_pub:
+        Publisher<'static, CriticalSectionRawMutex, MotorCommand, MOTION_CMD_QUEUE_SIZE, 1, 1>,
+    pub right_motor_cmd_pub:
+        Publisher<'static, CriticalSectionRawMutex, MotorCommand, MOTION_CMD_QUEUE_SIZE, 1, 1>,
+    pub left_motor_queue_status: Receiver<'static, CriticalSectionRawMutex, bool, 1>,
+    pub right_motor_queue_status: Receiver<'static, CriticalSectionRawMutex, bool, 1>,
+}
+
+type AppDriver = usb::Driver<'static, USB>;
+type AppStorage = WireStorage<ThreadModeRawMutex, AppDriver, 256, 256, 64, 256>;
+type BufStorage = PacketBuffers<1024, 1024>;
+type AppTx = WireTxImpl<ThreadModeRawMutex, AppDriver>;
+type AppRx = WireRxImpl<AppDriver>;
+type AppServer = Server<AppTx, AppRx, WireRxBuf, MyApp>;
+
+static PBUFS: ConstStaticCell<BufStorage> = ConstStaticCell::new(BufStorage::new());
+static STORAGE: AppStorage = AppStorage::new();
+
+define_dispatch! {
+    app: MyApp;
+    spawn_fn: spawn_fn;
+    tx_impl: AppTx;
+    spawn_impl: WireSpawnImpl;
+    context: Context;
+
+    endpoints: {
+        list: ENDPOINT_LIST;
+
+        | EndpointTy                    | kind      | handler                       |
+        | ----------                    | ----      | -------                       |
+        | SetMotorCommandEndPoint       | blocking  | set_motor_cmd_handler         |
+    };
+    topics_in: {
+        list: TOPICS_IN_LIST;
+
+        | TopicTy                       | kind      | handler                       |
+        | ----------                    | ----      | -------                       |
+    };
+    topics_out: {
+        list: TOPICS_OUT_LIST;
+    };
+}
+
+bind_interrupts!(struct Irqs {
+    USB_LP_CAN_RX0 => usb::InterruptHandler<peripherals::USB>;
+});
 
 #[interrupt]
 unsafe fn TIM1_BRK_TIM15() {
@@ -58,74 +130,138 @@ unsafe fn TIM1_BRK_TIM15() {
 }
 
 #[embassy_executor::task]
-async fn motion_task(mut left_motion_controller: Motion<'static, TIM2, TIM3>) {
-    // let mut left_cmd_subscriber = LEFT_COMMAND_CHANNEL.subscriber().unwrap();
-    // let mut right_cmd_subscriber = RIGHT_COMMAND_CHANNEL.subscriber().unwrap();
-    // let motion_data_sender = MOTION_DATA.sender();
-
-    // let mut left_cmd_queue = Deque::<MotorRx, 32>::new();
-    // let mut right_cmd_queue = Deque::<MotorRx, 32>::new();
-
-    // let mut left_data = MotorTx::default();
-    // let mut right_data = MotorTx::default();
-    // let mut tx_data = CommandTx::default();
+async fn motion_task(
+    mut left_motion_controller: Motion<
+        'static,
+        CriticalSectionRawMutex,
+        TIM2,
+        TIM3,
+        MOTION_CMD_QUEUE_SIZE,
+    >,
+    mut right_motion_controller: Motion<
+        'static,
+        CriticalSectionRawMutex,
+        TIM4,
+        TIM3,
+        MOTION_CMD_QUEUE_SIZE,
+    >,
+    left_motion_queue_status: WatchSender<'static, CriticalSectionRawMutex, bool, 1>,
+    right_motion_queue_status: WatchSender<'static, CriticalSectionRawMutex, bool, 1>,
+    app_sender: Sender<AppTx>,
+) {
+    let mut left_motor_topic_seq = 0u8;
+    let mut right_motor_topic_seq = 0u8;
     loop {
         TIMER_SIGNAL.wait().await;
 
-        // if let Some(left_cmd) = left_cmd_subscriber.try_next_message() {
-        //     match left_cmd {
-        //         WaitResult::Lagged(_val) => {
-        //             #[cfg(feature = "debug-motion")]
-        //             debug!("left command lag: {}", _val);
-        //         }
-        //         WaitResult::Message(cmd) => {
-        //             if cmd.operation == Operation::Stop {
-        //                 left_cmd_queue.clear();
-        //             }
-        //             let _ = left_cmd_queue.push_back(cmd);
-        //         }
-        //     }
-        // }
+        left_motion_controller.read_cmd_from_queue();
+        right_motion_controller.read_cmd_from_queue();
 
-        // if let Some(right_cmd) = right_cmd_subscriber.try_next_message() {
-        //     match right_cmd {
-        //         WaitResult::Lagged(_val) => {
-        //             #[cfg(feature = "debug-motion")]
-        //             debug!("right command lag: {}", _val);
-        //         }
-        //         WaitResult::Message(cmd) => {
-        //             if cmd.operation == Operation::Stop {
-        //                 right_cmd_queue.clear();
-        //             }
-        //             let _ = right_cmd_queue.push_back(cmd);
-        //         }
-        //     }
-        // }
-
-        // let first_mode = left_cmd_queue.front().and_then(|x| Some(x.operation));
-        // if left_motion_controller.can_send_cmd(first_mode) {
-        //     if let Some(cmd) = left_cmd_queue.pop_front() {
-        //         left_motion_controller.set_command(cmd);
-        //     }
-        // }
-
-        // let first_mode = right_cmd_queue.front().and_then(|x| Some(x.operation));
-        // if right_motion_controller.can_send_cmd(first_mode) {
-        //     if let Some(cmd) = right_cmd_queue.pop_front() {
-        //         right_motion_controller.set_command(cmd);
-        //     }
-        // }
-
-        left_motion_controller.set_command(-300.0);
         left_motion_controller.run();
-        // right_motion_controller.run();
+        right_motion_controller.run();
+
+        left_motion_queue_status.send(left_motion_controller.is_queue_full());
+        right_motion_queue_status.send(right_motion_controller.is_queue_full());
+
+        if app_sender
+            .publish::<MotorProcessDataTopic>(
+                left_motor_topic_seq.into(),
+                &(
+                    MotorId::Left,
+                    left_motion_controller.get_motor_process_data(),
+                ),
+            )
+            .await
+            .is_err()
+        {
+            error!("Send error, left topic");
+        }
+
+        if app_sender
+            .publish::<MotorProcessDataTopic>(
+                right_motor_topic_seq.into(),
+                &(
+                    MotorId::Right,
+                    right_motion_controller.get_motor_process_data(),
+                ),
+            )
+            .await
+            .is_err()
+        {
+            error!("Send error, right topic");
+        }
+
+        left_motor_topic_seq = left_motor_topic_seq.wrapping_add(1);
+        right_motor_topic_seq = right_motor_topic_seq.wrapping_add(1);
     }
 }
 
+#[embassy_executor::task]
+pub async fn usb_task(mut usb: UsbDevice<'static, AppDriver>) {
+    // low level USB management
+    usb.run().await;
+}
+
+fn set_motor_cmd_handler(
+    context: &mut Context,
+    _header: VarHeader,
+    rqst: (MotorId, MotorCommand),
+) -> CommandSetResult {
+    // Indicates the internal buffer in motion controller is full or not, need to check
+    // this flag before sending commands to motion controller task
+    //
+    // There are 2 queues in target board:
+    // 1. PubSubChannel, publish command to motion controller task
+    // 2. Deque, queue used as a backup in motion controller
+    //
+    // If the Deque in motion controller is full then, this flag will be set to true then
+    // the handler will return error.
+    // (This could happen if a batch of position commands are pushed to the Deque, and
+    // motion controller is still processing it).
+    //
+    // If the Deque in motion controller is not full but commands are published too fast
+    // and all the spaces in PubSubChannel is consumed, then the handler will return error.
+
+    let (queue_status, channel_pub) = match rqst.0 {
+        MotorId::Left => (
+            &mut context.left_motor_queue_status,
+            &context.left_motor_cmd_pub,
+        ),
+        MotorId::Right => (
+            &mut context.right_motor_queue_status,
+            &context.right_motor_cmd_pub,
+        ),
+    };
+
+    if queue_status.try_get().is_none_or(|x| x == false) {
+        channel_pub
+            .try_publish(rqst.1)
+            .map_err(|_e| CommandError::BufferFull(rqst.0))
+    } else {
+        Err(CommandError::BufferFull(rqst.0))
+    }
+}
+
+fn usb_config() -> Config<'static> {
+    let mut config = Config::new(0x16c0, 0x27DD);
+    config.manufacturer = Some("tchen");
+    config.product = Some("stm32-discovery");
+    config.serial_number = Some("12345678");
+
+    // Required for windows compatibility.
+    // https://developer.nordicsemi.com/nRF_Connect_SDK/doc/1.9.1/kconfig/CONFIG_CDC_ACM_IAD.html#help
+    // config.device_class = 0xEF;
+    // config.device_sub_class = 0x02;
+    // config.device_protocol = 0x01;
+    // config.composite_with_iads = true;
+
+    config
+}
+
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
-    // Init hardware
-    info!("Start");
+async fn main(spawner: Spawner) {
+    // System init
+    // info!("Start");
     let mut config = embassy_stm32::Config::default();
     {
         use embassy_stm32::rcc::*;
@@ -151,11 +287,11 @@ async fn main(_spawner: Spawner) {
     let left_wheel_break_pin = Output::new(p.PC1, Level::High, Speed::Low);
     let left_wheel_pid = Pid::new(0.00006, 0.00124, 0.000000728, 1.0);
 
-    let _right_wheel_enc: Encoder<'_, TIM4, 400> = Encoder::new(p.TIM4, p.PB6, p.PB7);
+    let right_wheel_enc: Encoder<'_, TIM4, 400> = Encoder::new(p.TIM4, p.PB6, p.PB7);
     let right_wheel_pwm_pin = PwmPin::new_ch1(p.PB4, OutputType::PushPull);
-    let _right_wheel_dir_pin = Output::new(p.PB5, Level::High, Speed::Low);
-    let _right_wheel_break_pin = Output::new(p.PB3, Level::High, Speed::Low);
-    let _right_wheel_pid = Pid::new(0.00006, 0.00124, 0.000000728, 1.0);
+    let right_wheel_dir_pin = Output::new(p.PB5, Level::High, Speed::Low);
+    let right_wheel_break_pin = Output::new(p.PB3, Level::High, Speed::Low);
+    let right_wheel_pid = Pid::new(0.00006, 0.00124, 0.000000728, 1.0);
 
     let pwm = SimplePwm::new(
         p.TIM3,
@@ -169,7 +305,7 @@ async fn main(_spawner: Spawner) {
 
     let pwm_channels = pwm.split();
     let left_wheel_pwm_ch = pwm_channels.ch3;
-    let _right_wheel_pwm_ch = pwm_channels.ch1;
+    let right_wheel_pwm_ch = pwm_channels.ch1;
 
     // Create motors
     let left_wheel = BldcMotor24H::new(
@@ -181,14 +317,14 @@ async fn main(_spawner: Spawner) {
         PERIOD_S,
     );
 
-    // let right_wheel = BldcMotor24H::new(
-    //     right_wheel_enc,
-    //     right_wheel_pwm_ch,
-    //     right_wheel_dir_pin,
-    //     right_wheel_break_pin,
-    //     right_wheel_pid,
-    //     PERIOD_S,
-    // );
+    let right_wheel = BldcMotor24H::new(
+        right_wheel_enc,
+        right_wheel_pwm_ch,
+        right_wheel_dir_pin,
+        right_wheel_break_pin,
+        right_wheel_pid,
+        PERIOD_S,
+    );
 
     // Create s_curve interpolator for left, right wheel
     let vel_limit_rad_s = rpm_to_rad_s(VEL_LIMIT_RPM);
@@ -198,11 +334,21 @@ async fn main(_spawner: Spawner) {
         vel_limit_rad_s * 100.0,
         PERIOD_S,
     );
-    // let right_s_curve_intper = left_s_curve_intper.clone();
+    let right_s_curve_intper = left_s_curve_intper.clone();
 
     // Create motion controller for left, right wheel
-    let left_motion_controller = Motion::new(left_s_curve_intper, left_wheel);
-    // let right_motion_controller = Motion::new(right_s_curve_intper, right_wheel);
+    let left_motion_controller =
+        Motion::<CriticalSectionRawMutex, TIM2, TIM3, MOTION_CMD_QUEUE_SIZE>::new(
+            left_s_curve_intper,
+            left_wheel,
+            LEFT_MOTOR_CMD_CHANNEL.subscriber().unwrap(),
+        );
+    let right_motion_controller =
+        Motion::<CriticalSectionRawMutex, TIM4, TIM3, MOTION_CMD_QUEUE_SIZE>::new(
+            right_s_curve_intper,
+            right_wheel,
+            RIGHT_MOTOR_CMD_CHANNEL.subscriber().unwrap(),
+        );
 
     // Create timer
     let low_level_timer = LLTimer::new(p.TIM15);
@@ -212,18 +358,45 @@ async fn main(_spawner: Spawner) {
     low_level_timer.enable_update_interrupt(true);
     low_level_timer.start();
 
+    // USB/RPC init
+    let driver = usb::Driver::new(p.USB, Irqs, p.PA12, p.PA11);
+    let pbufs = PBUFS.take();
+    let config = usb_config();
+
+    let context = Context {
+        left_motor_cmd_pub: LEFT_MOTOR_CMD_CHANNEL.publisher().unwrap(),
+        right_motor_cmd_pub: RIGHT_MOTOR_CMD_CHANNEL.publisher().unwrap(),
+        left_motor_queue_status: LEFT_MOTION_QUEUE_STATUS_WATCH.receiver().unwrap(),
+        right_motor_queue_status: RIGHT_MOTION_QUEUE_STATUS_WATCH.receiver().unwrap(),
+    };
+    let (device, tx_impl, rx_impl) = STORAGE.init(driver, config, pbufs.tx_buf.as_mut_slice());
+
+    let dispatcher = MyApp::new(context, spawner.into());
+    let vkk = dispatcher.min_key_len();
+    let mut server: AppServer = Server::new(
+        tx_impl,
+        rx_impl,
+        pbufs.rx_buf.as_mut_slice(),
+        dispatcher,
+        vkk,
+    );
+    spawner.must_spawn(usb_task(device));
+
     // Spawn tasks
     interrupt::TIM1_BRK_TIM15.set_priority(Priority::P6);
     let timer_spawner = EXECUTOR_TIMER.start(interrupt::TIM1_BRK_TIM15);
     timer_spawner
-        .spawn(motion_task(left_motion_controller))
+        .spawn(motion_task(
+            left_motion_controller,
+            right_motion_controller,
+            LEFT_MOTION_QUEUE_STATUS_WATCH.sender(),
+            RIGHT_MOTION_QUEUE_STATUS_WATCH.sender(),
+            server.sender(),
+        ))
         .unwrap();
 
-    let mut led = Output::new(p.PE8, Level::Low, Speed::Medium);
     loop {
-        led.set_high();
-        Timer::after_secs(1).await;
-        led.set_low();
-        Timer::after_secs(1).await;
+        let _ = server.run().await;
+        Timer::after_millis(1).await;
     }
 }
