@@ -11,7 +11,7 @@ endpoints! {
     omit_std = true;
     | EndpointTy                  | RequestTy                     | ResponseTy          | Path               |
     | ----------                  | ----------                    | ----------          | ----------         |
-    | SetMotorCommandEndPoint     | (MotorId, MotorCommand)       | ()                  | "motor_cmd/set"    |
+    | SetMotorCommandEndPoint     | (MotorId, MotorCommand)       | CommandSetResult    | "motor_cmd/set"    |
 }
 
 topics! {
