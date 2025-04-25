@@ -1,5 +1,7 @@
 ## Description
 
+**Below description is out of date, I'll update it in the future**
+
 A small project that controls motor in velocity and position mode:
 1. `fw` contains the code for nucleo f401re development board
 2. `serial_tool` contains the code for UI: (it will be updated after including `postcard-rpc`)
