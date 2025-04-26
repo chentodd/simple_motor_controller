@@ -46,6 +46,14 @@ use protocol::*;
 use s_curve::*;
 
 // control loop
+
+#[derive(Clone, Copy)]
+pub struct MotorStatus {
+    pub id: MotorId,
+    pub is_queue_full: bool,
+    pub process_data: MotorProcessData,
+}
+
 const PERIOD_S: f32 = 0.005;
 const PWM_HZ: u32 = 20_000;
 const VEL_LIMIT_RPM: f32 = 4000.0;
@@ -67,8 +75,8 @@ static RIGHT_MOTOR_CMD_CHANNEL: PubSubChannel<
     1,
     1,
 > = PubSubChannel::new();
-static LEFT_MOTION_QUEUE_STATUS_WATCH: Watch<CriticalSectionRawMutex, bool, 1> = Watch::new();
-static RIGHT_MOTION_QUEUE_STATUS_WATCH: Watch<CriticalSectionRawMutex, bool, 1> = Watch::new();
+static LEFT_MOTOR_STATUS_WATCH: Watch<CriticalSectionRawMutex, MotorStatus, 2> = Watch::new();
+static RIGHT_MOTOR_STATUS_WATCH: Watch<CriticalSectionRawMutex, MotorStatus, 2> = Watch::new();
 
 // postcard-rpc
 pub struct Context {
@@ -76,8 +84,8 @@ pub struct Context {
         Publisher<'static, CriticalSectionRawMutex, MotorCommand, MOTION_CMD_QUEUE_SIZE, 1, 1>,
     pub right_motor_cmd_pub:
         Publisher<'static, CriticalSectionRawMutex, MotorCommand, MOTION_CMD_QUEUE_SIZE, 1, 1>,
-    pub left_motor_queue_status: Receiver<'static, CriticalSectionRawMutex, bool, 1>,
-    pub right_motor_queue_status: Receiver<'static, CriticalSectionRawMutex, bool, 1>,
+    pub left_motor_status: Receiver<'static, CriticalSectionRawMutex, MotorStatus, 2>,
+    pub right_motor_status: Receiver<'static, CriticalSectionRawMutex, MotorStatus, 2>,
 }
 
 type AppDriver = usb::Driver<'static, USB>;
@@ -145,12 +153,9 @@ async fn motion_task(
         TIM3,
         MOTION_CMD_QUEUE_SIZE,
     >,
-    left_motion_queue_status: WatchSender<'static, CriticalSectionRawMutex, bool, 1>,
-    right_motion_queue_status: WatchSender<'static, CriticalSectionRawMutex, bool, 1>,
-    app_sender: Sender<AppTx>,
+    left_motor_status: WatchSender<'static, CriticalSectionRawMutex, MotorStatus, 2>,
+    right_motor_status: WatchSender<'static, CriticalSectionRawMutex, MotorStatus, 2>,
 ) {
-    let mut left_motor_topic_seq = 0u8;
-    let mut right_motor_topic_seq = 0u8;
     loop {
         TIMER_SIGNAL.wait().await;
 
@@ -160,46 +165,67 @@ async fn motion_task(
         left_motion_controller.run();
         right_motion_controller.run();
 
-        left_motion_queue_status.send(left_motion_controller.is_queue_full());
-        right_motion_queue_status.send(right_motion_controller.is_queue_full());
+        left_motor_status.send(MotorStatus {
+            id: MotorId::Left,
+            is_queue_full: left_motion_controller.is_queue_full(),
+            process_data: left_motion_controller.get_motor_process_data(),
+        });
 
-        if app_sender
-            .publish::<MotorProcessDataTopic>(
-                left_motor_topic_seq.into(),
-                &(
-                    MotorId::Left,
-                    left_motion_controller.get_motor_process_data(),
-                ),
-            )
-            .await
-            .is_err()
-        {
-            error!("Send error, left topic");
-        }
-
-        if app_sender
-            .publish::<MotorProcessDataTopic>(
-                right_motor_topic_seq.into(),
-                &(
-                    MotorId::Right,
-                    right_motion_controller.get_motor_process_data(),
-                ),
-            )
-            .await
-            .is_err()
-        {
-            error!("Send error, right topic");
-        }
-
-        left_motor_topic_seq = left_motor_topic_seq.wrapping_add(1);
-        right_motor_topic_seq = right_motor_topic_seq.wrapping_add(1);
+        right_motor_status.send(MotorStatus {
+            id: MotorId::Right,
+            is_queue_full: right_motion_controller.is_queue_full(),
+            process_data: right_motion_controller.get_motor_process_data(),
+        });
     }
 }
 
 #[embassy_executor::task]
 pub async fn usb_task(mut usb: UsbDevice<'static, AppDriver>) {
     // low level USB management
+    info!("USB task started");
     usb.run().await;
+}
+
+#[embassy_executor::task]
+pub async fn motor_data_publish_task(
+    mut left_motor_status: Receiver<'static, CriticalSectionRawMutex, MotorStatus, 2>,
+    mut right_motor_status: Receiver<'static, CriticalSectionRawMutex, MotorStatus, 2>,
+    app_sender: Sender<AppTx>,
+) {
+    let mut left_motor_topic_seq = 0_u8;
+    let mut right_motor_topic_seq = 0_u8;
+
+    loop {
+        let left_motor_status = left_motor_status.get().await;
+        let right_motor_status = right_motor_status.get().await;
+
+        if let Err(e) = app_sender
+            .publish::<MotorProcessDataTopic>(
+                left_motor_topic_seq.into(),
+                &(left_motor_status.id, left_motor_status.process_data),
+            )
+            .await
+        {
+            error!("Send error, left topic, {:?}", e as i32);
+        }
+
+        if let Err(e) = app_sender
+            .publish::<MotorProcessDataTopic>(
+                right_motor_topic_seq.into(),
+                &(right_motor_status.id, right_motor_status.process_data),
+            )
+            .await
+        {
+            error!("Send error, right topic, {:?}", e as i32);
+        }
+
+        left_motor_topic_seq = left_motor_topic_seq.wrapping_add(1);
+        right_motor_topic_seq = right_motor_topic_seq.wrapping_add(1);
+
+        // It might not be a good idea to use 1ms delay here, but I'm using it to prevent
+        // the task consumes all the resources and block USB task.
+        Timer::after_millis(1).await;
+    }
 }
 
 fn set_motor_cmd_handler(
@@ -223,17 +249,17 @@ fn set_motor_cmd_handler(
     // and all the spaces in PubSubChannel is consumed, then the handler will return error.
 
     let (queue_status, channel_pub) = match rqst.0 {
-        MotorId::Left => (
-            &mut context.left_motor_queue_status,
-            &context.left_motor_cmd_pub,
-        ),
+        MotorId::Left => (&mut context.left_motor_status, &context.left_motor_cmd_pub),
         MotorId::Right => (
-            &mut context.right_motor_queue_status,
+            &mut context.right_motor_status,
             &context.right_motor_cmd_pub,
         ),
     };
 
-    if queue_status.try_get().is_none_or(|x| x == false) {
+    if queue_status
+        .try_get()
+        .is_none_or(|x| x.is_queue_full == false)
+    {
         channel_pub
             .try_publish(rqst.1)
             .map_err(|_e| CommandError::BufferFull(rqst.0))
@@ -366,8 +392,8 @@ async fn main(spawner: Spawner) {
     let context = Context {
         left_motor_cmd_pub: LEFT_MOTOR_CMD_CHANNEL.publisher().unwrap(),
         right_motor_cmd_pub: RIGHT_MOTOR_CMD_CHANNEL.publisher().unwrap(),
-        left_motor_queue_status: LEFT_MOTION_QUEUE_STATUS_WATCH.receiver().unwrap(),
-        right_motor_queue_status: RIGHT_MOTION_QUEUE_STATUS_WATCH.receiver().unwrap(),
+        left_motor_status: LEFT_MOTOR_STATUS_WATCH.receiver().unwrap(),
+        right_motor_status: RIGHT_MOTOR_STATUS_WATCH.receiver().unwrap(),
     };
     let (device, tx_impl, rx_impl) = STORAGE.init(driver, config, pbufs.tx_buf.as_mut_slice());
 
@@ -382,18 +408,23 @@ async fn main(spawner: Spawner) {
     );
     spawner.must_spawn(usb_task(device));
 
-    // Spawn tasks
+    // Spawn other tasks
     interrupt::TIM1_BRK_TIM15.set_priority(Priority::P6);
     let timer_spawner = EXECUTOR_TIMER.start(interrupt::TIM1_BRK_TIM15);
     timer_spawner
         .spawn(motion_task(
             left_motion_controller,
             right_motion_controller,
-            LEFT_MOTION_QUEUE_STATUS_WATCH.sender(),
-            RIGHT_MOTION_QUEUE_STATUS_WATCH.sender(),
-            server.sender(),
+            LEFT_MOTOR_STATUS_WATCH.sender(),
+            RIGHT_MOTOR_STATUS_WATCH.sender(),
         ))
         .unwrap();
+
+    spawner.must_spawn(motor_data_publish_task(
+        LEFT_MOTOR_STATUS_WATCH.receiver().unwrap(),
+        RIGHT_MOTOR_STATUS_WATCH.receiver().unwrap(),
+        server.sender(),
+    ));
 
     loop {
         let _ = server.run().await;
