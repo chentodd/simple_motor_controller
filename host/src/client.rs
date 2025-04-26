@@ -41,21 +41,14 @@ impl<T, E> FlattenErr for Result<T, E> {
 
 // ---
 
-impl Default for Client {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Client {
-    pub fn new() -> Self {
+    pub fn new(product_name: &str) -> Self {
         let client = HostClient::new_raw_nusb(
-            |d| d.product_string() == Some("stm32-discovery"),
+            |d| d.product_string() == Some(product_name),
             ERROR_PATH,
             8,
             VarSeqKind::Seq2,
         );
-        println!("Client created");
         Self { client }
     }
 

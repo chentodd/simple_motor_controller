@@ -6,7 +6,7 @@ use tokio::time::interval;
 
 #[tokio::main]
 pub async fn main() {
-    let client = Arc::new(Client::new());
+    let client = Arc::new(Client::new("stm32-discovery"));
 
     tokio::join!(
         ping(client.clone()),
