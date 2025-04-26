@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use defmt::error;
+use defmt::{error, info};
 use embassy_executor::{InterruptExecutor, Spawner};
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, ThreadModeRawMutex};
 use embassy_sync::pubsub::{PubSubChannel, Publisher};
@@ -287,7 +287,6 @@ fn usb_config() -> Config<'static> {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     // System init
-    // info!("Start");
     let mut config = embassy_stm32::Config::default();
     {
         use embassy_stm32::rcc::*;
