@@ -31,9 +31,10 @@ topics! {
 }
 
 
-#[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Clone, Copy)]
+#[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Clone, Copy, Default)]
 pub enum ControlMode {
     Position,
+    #[default]
     Velocity,
     Stop,
 }
@@ -63,7 +64,7 @@ pub enum MotorCommand {
     PositionCommand(PositionCommand)
 }
 
-#[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Clone, Copy)]
+#[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Clone, Copy, Default)]
 pub struct MotorProcessData {
     pub control_mode_display: ControlMode,
     pub actual_pos: f32,
