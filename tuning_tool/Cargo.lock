@@ -1566,6 +1566,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "host"
+version = "0.1.0"
+dependencies = [
+ "postcard-rpc",
+ "postcard-schema",
+ "protocol",
+ "tokio",
+]
+
+[[package]]
 name = "humantime"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3341,8 +3351,10 @@ dependencies = [
  "eframe",
  "egui_plot",
  "env_logger",
+ "host",
  "log",
  "nom",
+ "nusb",
  "postcard-rpc",
  "postcard-schema",
  "protocol",
