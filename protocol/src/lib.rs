@@ -50,7 +50,7 @@ pub struct PositionCommand {
     pub vel_end: f32,
 }
 
-#[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Clone, Copy)]
 pub enum MotorId {
     Left,
     Right,
