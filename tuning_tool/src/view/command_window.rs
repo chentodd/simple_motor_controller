@@ -1,9 +1,11 @@
-use crate::{DEFAULT_CONTROL_MODE, UiView, ViewEvent, ViewRequest, proto::motor_::Operation};
 use eframe::egui::{Button, ScrollArea, Slider, TextEdit, Ui};
+
+use protocol::ControlMode;
+use crate::{DEFAULT_CONTROL_MODE, UiView, ViewEvent, ViewRequest};
 
 #[derive(Default)]
 pub(super) struct CommandWindow {
-    curr_control_mode: Operation,
+    curr_control_mode: ControlMode,
     request: Option<ViewRequest>,
     // velocity command, unit: rpm
     curr_vel_cmd: f32,
@@ -26,17 +28,6 @@ impl CommandWindow {
         }
     }
 
-    fn display_velocity_command_panel(&mut self, ui: &mut Ui) {
-        ui.add(
-            Slider::new(&mut self.curr_vel_cmd, -3000.0..=3000.0).text("motor velocity cmd (rpm)"),
-        );
-
-        if self.curr_vel_cmd != self.prev_vel_cmd {
-            self.prev_vel_cmd = self.curr_vel_cmd;
-            self.request = Some(ViewRequest::VelocityControl(self.curr_vel_cmd));
-        }
-    }
-
     fn display_position_command_panel(&mut self, ui: &mut Ui) {
         ScrollArea::vertical().max_height(64.0).show(ui, |ui| {
             ui.add_sized(ui.available_size(), TextEdit::multiline(&mut self.pos_cmd));
@@ -50,14 +41,25 @@ impl CommandWindow {
             self.request = Some(ViewRequest::PositionControl(self.pos_cmd.clone()));
         }
     }
+
+    fn display_velocity_command_panel(&mut self, ui: &mut Ui) {
+        ui.add(
+            Slider::new(&mut self.curr_vel_cmd, -3000.0..=3000.0).text("motor velocity cmd (rpm)"),
+        );
+
+        if self.curr_vel_cmd != self.prev_vel_cmd {
+            self.prev_vel_cmd = self.curr_vel_cmd;
+            self.request = Some(ViewRequest::VelocityControl(self.curr_vel_cmd));
+        }
+    }
 }
 
 impl UiView for CommandWindow {
     fn show(&mut self, ui: &mut eframe::egui::Ui) {
         ui.heading("Command setup");
         match self.curr_control_mode {
-            Operation::IntpVel => self.display_velocity_command_panel(ui),
-            Operation::IntpPos => self.display_position_command_panel(ui),
+            ControlMode::Position => self.display_position_command_panel(ui),
+            ControlMode::Velocity => self.display_velocity_command_panel(ui),
             _ => (),
         }
     }
@@ -71,7 +73,7 @@ impl UiView for CommandWindow {
             ViewEvent::ControlModeUpdate((ok, mode)) => {
                 if ok {
                     self.curr_control_mode = mode;
-                    if self.curr_control_mode == Operation::Stop {
+                    if self.curr_control_mode == ControlMode::Stop {
                         self.reset();
                     }
                 }
