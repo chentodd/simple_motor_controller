@@ -1,15 +1,15 @@
 use eframe::{
-    egui::{self, Ui, Vec2},
     App, CreationContext,
+    egui::{self, Ui, Vec2},
 };
 
 use crate::{
+    ErrorType, ProfileData, ViewEvent, ViewRequest,
     communication::Communication,
     mode_switch::ModeSwitch,
     position_command_parser::CommandParser,
     proto::motor_::{MotorRx, MotorTx, Operation},
     view::window_wrapper::{WindowType, WindowWrapper},
-    ErrorType, ProfileData, ViewEvent, ViewRequest,
 };
 
 use log::error;

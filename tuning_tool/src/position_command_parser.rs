@@ -1,4 +1,5 @@
 use nom::{
+    IResult, Parser,
     bytes::complete::tag,
     character::complete::multispace0,
     combinator::{all_consuming, opt},
@@ -6,7 +7,6 @@ use nom::{
     multi::separated_list0,
     number::complete::float,
     sequence::{delimited, preceded, terminated},
-    IResult, Parser,
 };
 use std::collections::VecDeque;
 

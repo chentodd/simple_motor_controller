@@ -1,10 +1,10 @@
 use crate::{
+    DEFAULT_GRAPH_SIZE, UiView,
     view::{
         command_window::CommandWindow, connection_window::ConnectionWindow,
         control_mode_window::ControlModeWindow, error_window::ErrorWindow,
         profile_window::DataGraph,
     },
-    UiView, DEFAULT_GRAPH_SIZE,
 };
 use std::collections::HashMap;
 use strum_macros::EnumIter;

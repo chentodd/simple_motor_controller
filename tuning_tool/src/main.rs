@@ -33,27 +33,30 @@ fn main() {
     let mut right_motor_command = MotorRx::default();
 
     // Test get
-    thread::spawn(move || loop {
-        let mut input_packet_buffer = [0_u8; 128];
-        let read_count = cloned_port.read(&mut input_packet_buffer);
-        if let Ok(_read_count) = read_count {
-            if let Some(good_start_index) =
-                packet_decoder.get_valid_packet_index(&input_packet_buffer)
-            {
-                if packet_decoder
-                    .parse_proto_message(&input_packet_buffer[good_start_index..], &mut tx_packet)
+    thread::spawn(move || {
+        loop {
+            let mut input_packet_buffer = [0_u8; 128];
+            let read_count = cloned_port.read(&mut input_packet_buffer);
+            if let Ok(_read_count) = read_count {
+                if let Some(good_start_index) =
+                    packet_decoder.get_valid_packet_index(&input_packet_buffer)
                 {
-                    let _left_motor_data = tx_packet.left_motor.clone();
-                    let _right_motor_data = tx_packet.right_motor.clone();
-                    println!(
-                        "get: {}, {}",
-                        _left_motor_data.actual_vel, _right_motor_data.actual_vel
-                    );
+                    if packet_decoder.parse_proto_message(
+                        &input_packet_buffer[good_start_index..],
+                        &mut tx_packet,
+                    ) {
+                        let _left_motor_data = tx_packet.left_motor.clone();
+                        let _right_motor_data = tx_packet.right_motor.clone();
+                        println!(
+                            "get: {}, {}",
+                            _left_motor_data.actual_vel, _right_motor_data.actual_vel
+                        );
+                    }
                 }
             }
+            cloned_port.clear(serialport::ClearBuffer::Input).unwrap();
+            thread::sleep(Duration::from_millis(200));
         }
-        cloned_port.clear(serialport::ClearBuffer::Input).unwrap();
-        thread::sleep(Duration::from_millis(200));
     });
 
     let stdin = std::io::stdin();

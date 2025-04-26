@@ -3,10 +3,10 @@ use log::error;
 use std::time::Duration;
 use std::time::Instant;
 
+use crate::DEFAULT_CONTROL_MODE;
+use crate::ErrorType;
 use crate::proto::motor_::MotorTx;
 use crate::proto::motor_::Operation;
-use crate::ErrorType;
-use crate::DEFAULT_CONTROL_MODE;
 
 #[derive(Debug, Default)]
 enum ModeSwitchState {

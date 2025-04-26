@@ -1,0 +1,23 @@
+[package]
+name = "tuning_tool"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+eframe              = { version = "0.31.0" } 
+egui_plot           = { version = "0.31.0" }
+
+env_logger          = { version = "0.11.6" }
+log                 = { version = "0.4.26" }
+
+nom                 = { version = "8.0.0" }
+
+strum               = { version = "0.27.1" }
+strum_macros        = { version = "0.27.1" }
+
+tokio               = { version = "1.44.2", features = ["rt-multi-thread", "macros", "time"] }
+
+postcard-rpc        = { version = "0.11",  features = ["use-std", "raw-nusb"] }
+postcard-schema     = { version = "0.2.1", features = ["derive"] }
+
+protocol            = { version = "0.1.0", path = "../protocol", features = ["use-std"] }

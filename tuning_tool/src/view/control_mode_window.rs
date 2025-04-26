@@ -1,4 +1,4 @@
-use crate::{proto::motor_::Operation, UiView, ViewEvent, ViewRequest, DEFAULT_CONTROL_MODE};
+use crate::{DEFAULT_CONTROL_MODE, UiView, ViewEvent, ViewRequest, proto::motor_::Operation};
 use eframe::egui::{self, ComboBox, Id, ProgressBar, Ui, Widget};
 use log::debug;
 
