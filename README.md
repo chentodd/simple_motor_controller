@@ -1,5 +1,8 @@
 ## Description
 
+This branch is used to utilize the power of `postcard-rpc` and create more reliable communication between host and target.
+The `main` branch contains old stuff that uses serial communication between host and target.
+
 **Below description is out of date, I'll update it in the future**
 
 A small project that controls motor in velocity and position mode:
