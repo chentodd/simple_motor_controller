@@ -1,13 +1,15 @@
-use crate::{DEFAULT_CONTROL_MODE, UiView, ViewEvent, ViewRequest, proto::motor_::Operation};
 use eframe::egui::{self, ComboBox, Id, ProgressBar, Ui, Widget};
 use log::debug;
+
+use crate::{DEFAULT_CONTROL_MODE, UiView, ViewEvent, ViewRequest};
+use protocol::ControlMode;
 
 #[derive(Default)]
 pub(super) struct ControlModeWindow {
     request: Option<ViewRequest>,
-    target_control_mode: Operation,
-    curr_control_mode: Operation,
-    backup_control_mode: Operation,
+    target_control_mode: ControlMode,
+    curr_control_mode: ControlMode,
+    backup_control_mode: ControlMode,
     internal_request: Option<String>,
     wait_mode_switch: bool,
     mode_switch_progress: Option<f32>,
@@ -29,13 +31,13 @@ impl UiView for ControlModeWindow {
         ComboBox::new("control_modes", "control_modes")
             .selected_text(format!("{}", self.target_control_mode))
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut self.target_control_mode, Operation::IntpPos, "IntpPos");
-                ui.selectable_value(&mut self.target_control_mode, Operation::IntpVel, "IntpVel");
+                ui.selectable_value(&mut self.target_control_mode, ControlMode::Position, "Position");
+                ui.selectable_value(&mut self.target_control_mode, ControlMode::Velocity, "IntpVel");
             });
 
         // Check if we need to do mode switch
         let modal_title = if let Some(title) = self.internal_request.take() {
-            self.target_control_mode = Operation::Stop;
+            self.target_control_mode = ControlMode::Stop;
             title.to_string()
         } else {
             "Switch control mode".to_string()
