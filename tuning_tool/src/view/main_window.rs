@@ -323,13 +323,14 @@ impl TuningTool {
             return;
         }
 
-        let internal_request_state = self.internal_request_state;
         let communication = self.communication.as_ref().unwrap();
-        match internal_request_state {
+        match self.internal_request_state {
             InternalRequestState::Confirm(req_type) => {
                 if self.mode_switch.is_finished() {
-                    // The internal type is stop connection or close app, and they all need to stop connection
+                    // The internal type is stop connection or close app, and they all need to stop connection.
+                    // The `stop` function will cancel the tokio task, after reset the UI
                     communication.stop();
+                    self.reset(true);
 
                     match req_type {
                         InternalRequestType::CloseApp => {
