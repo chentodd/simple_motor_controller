@@ -74,3 +74,19 @@ pub struct MotorProcessData {
     pub intp_acc: f32,
     pub intp_jerk: f32,
 }
+
+#[cfg(feature = "use-std")]
+mod display_impl {
+    use super::ControlMode;
+    use std::fmt::Display;
+
+    impl Display for ControlMode {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                ControlMode::Position => write!(f, "Position"),
+                ControlMode::Velocity => write!(f, "Velocity"),
+                ControlMode::Stop => write!(f, "Stop"),
+            }
+        }
+    }
+}
