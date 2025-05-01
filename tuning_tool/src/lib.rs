@@ -1,38 +1,19 @@
-pub mod communication;
-pub mod main_window;
-pub mod mode_switch;
-pub mod position_command_parser;
-pub mod view;
-
-use eframe::egui::Ui;
-use proto::motor_::{MotorTx, Operation};
 use std::fmt::Display;
 
-const DEFAULT_CONTROL_MODE: Operation = Operation::IntpVel;
+use eframe::egui::Ui;
+
+use protocol::{ControlMode, MotorProcessData};
+
+pub mod controller;
+pub mod view;
+
+const DEFAULT_CONTROL_MODE: ControlMode = ControlMode::Velocity;
 const DEFAULT_GRAPH_SIZE: usize = 600;
-
-pub mod proto {
-    #![allow(clippy::all)]
-    #![allow(nonstandard_style, unused, irrefutable_let_patterns)]
-    include!("proto_packet.rs");
-}
-
 pub trait UiView {
     fn show(&mut self, ui: &mut Ui);
     fn take_request(&mut self) -> Option<ViewRequest>;
     fn handle_event(&mut self, event: ViewEvent);
     fn reset(&mut self);
-}
-
-impl Display for Operation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match Operation::from(self.0) {
-            Operation::IntpPos => write!(f, "IntpPos"),
-            Operation::IntpVel => write!(f, "IntpVel"),
-            Operation::Stop => write!(f, "Stop"),
-            _ => Ok(()),
-        }
-    }
 }
 
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
@@ -43,6 +24,7 @@ pub enum ErrorType {
     StopError,
     ModeSwitchTimeout,
     ParseCommandError,
+    CommunicationError,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -56,7 +38,7 @@ pub struct ProfileData {
 }
 
 impl ProfileData {
-    pub fn from(motor_data: &MotorTx) -> Self {
+    pub fn from(motor_data: &MotorProcessData) -> Self {
         Self {
             intp_pos: motor_data.intp_pos,
             intp_vel: motor_data.intp_vel,
@@ -100,7 +82,7 @@ pub enum ViewRequest {
     // A request that wants to clear error from error window
     ErrorDismiss(ErrorType),
     // A request that wants to change to target mode from control mode window
-    ModeSwitch(Operation),
+    ModeSwitch(ControlMode),
     // A request that cancels mode switching from control mode window
     ModeCancel,
     // A request that wants to control velocity from command window
@@ -117,7 +99,7 @@ pub enum ViewEvent {
     // Send current connection status to connection windo
     ConnectionStatusUpdate(bool),
     // Send current operation mode to control mode window
-    ControlModeUpdate((bool, Operation)),
+    ControlModeUpdate((bool, ControlMode)),
     // Send internal operation mode request to control mode window and update
     // the tile of modal
     InternalStopModeRequest(String),
