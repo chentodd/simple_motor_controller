@@ -153,7 +153,7 @@ impl TuningTool {
             }
             ControlMode::Velocity => communication
                 .send_motor_command(MotorCommand::VelocityCommand(self.velocity_command)),
-            _ => (),
+            ControlMode::Stop => communication.send_motor_command(MotorCommand::Abort),
         }
     }
 
