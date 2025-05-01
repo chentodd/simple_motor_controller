@@ -1,7 +1,7 @@
 use eframe::egui::{Button, ScrollArea, Slider, TextEdit, Ui};
 
-use protocol::ControlMode;
 use crate::{DEFAULT_CONTROL_MODE, UiView, ViewEvent, ViewRequest};
+use protocol::ControlMode;
 
 #[derive(Default)]
 pub(super) struct CommandWindow {
