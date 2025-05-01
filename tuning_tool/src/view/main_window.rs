@@ -87,25 +87,50 @@ impl App for TuningTool {
         });
 
         self.handle_communication_error();
-
-        let motor_data_recv = self.collect_motor_data();
-        self.collect_conn_status();
-
         self.handle_close_event(ctx);
         self.handle_ui_request();
         self.send_ui_event();
-
-        let mode_switch_result = self.mode_switch.process(&motor_data_recv);
-        if let Err(e) = mode_switch_result {
-            self.view_events.push(ViewEvent::ErrorOccurred(
-                e,
-                "Mode switch failed".to_string(),
-            ));
-        } else {
-            // Send motor command when mode switch gives valud output mode
-            self.send_motor_command(mode_switch_result.unwrap());
-        }
         self.process_internal_request(&ctx);
+
+        // Process view events, mode switch and send motor command after handling UIs to 
+        // make sure correct data is set to UI.
+        //
+        // The ideal workflow is: 
+        // [UI] -> [Update connection status] -> *[Mode switch] -> [Update control mode] -> 
+        // [Update profile data] -> [Send motor command]
+        //
+        // For example, if the user clicks 'Stop' button:
+        // 1. UI, control mode window sends request to stop connection
+        // 2. Mode switch, start switching the mode to stop mode
+        // 3. Mode switch, finish switching the mode to stop mode
+        // 4. Events, send events to UI
+        // 5. UI, in the next update, the control mode window will use latest data
+        self.view_events.push(ViewEvent::ConnectionStatusUpdate(
+            self.communication.is_some(),
+        ));
+        if let Some(motor_data) = self.get_motor_data() {
+            // Run mode switch to decide current control mode
+            let mode_switch_result = self.mode_switch.process(&motor_data);
+            if let Err(e) = mode_switch_result {
+                self.view_events.push(ViewEvent::ErrorOccurred(
+                    e,
+                    "Mode switch failed".to_string(),
+                ));
+            }
+
+            self.view_events.push(ViewEvent::ControlModeUpdate((
+                self.mode_switch.is_finished(),
+                motor_data.control_mode_display,
+            )));
+
+            self.view_events
+                .push(ViewEvent::ProfileDataUpdate(ProfileData::from(&motor_data)));
+
+            if let Ok(mode) = mode_switch_result {
+                // Send motor command when mode switch gives valud output mode
+                self.send_motor_command(mode);
+            }
+        }
 
         ctx.request_repaint();
     }
@@ -158,9 +183,9 @@ impl TuningTool {
         }
     }
 
-    fn collect_motor_data(&mut self) -> MotorProcessData {
+    fn get_motor_data(&mut self) -> Option<MotorProcessData> {
         if self.communication.is_none() {
-            return MotorProcessData::default();
+            return None;
         }
 
         let communication = self.communication.as_ref().unwrap();
@@ -174,7 +199,7 @@ impl TuningTool {
         self.view_events
             .push(ViewEvent::ProfileDataUpdate(ProfileData::from(&motor_data)));
 
-        motor_data
+        Some(motor_data)
     }
 
     fn collect_conn_status(&mut self) {
