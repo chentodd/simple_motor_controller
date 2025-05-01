@@ -31,8 +31,16 @@ impl UiView for ControlModeWindow {
         ComboBox::new("control_modes", "control_modes")
             .selected_text(format!("{}", self.target_control_mode))
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut self.target_control_mode, ControlMode::Position, "Position");
-                ui.selectable_value(&mut self.target_control_mode, ControlMode::Velocity, "IntpVel");
+                ui.selectable_value(
+                    &mut self.target_control_mode,
+                    ControlMode::Position,
+                    "Position",
+                );
+                ui.selectable_value(
+                    &mut self.target_control_mode,
+                    ControlMode::Velocity,
+                    "IntpVel",
+                );
             });
 
         // Check if we need to do mode switch
