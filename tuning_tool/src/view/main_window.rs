@@ -4,7 +4,6 @@ use eframe::{
 };
 
 use protocol::{ControlMode, MotorCommand, MotorProcessData};
-use tokio::runtime;
 
 use crate::{
     ErrorType, ProfileData, ViewEvent, ViewRequest,
@@ -32,9 +31,6 @@ enum InternalRequestState {
 }
 
 pub struct TuningTool {
-    // tokio runtime
-    _rt: runtime::Runtime,
-
     // USB communication using `postcard-rpc`
     communication: Option<Communication>,
 
@@ -91,7 +87,7 @@ impl App for TuningTool {
         });
 
         self.handle_communication_error();
-        
+
         let motor_data_recv = self.collect_motor_data();
         self.collect_conn_status();
 
@@ -118,11 +114,6 @@ impl App for TuningTool {
 impl TuningTool {
     pub fn new(_cc: &CreationContext<'_>) -> Self {
         Self {
-            _rt: runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .unwrap(),
-
             communication: None,
 
             mode_switch: ModeSwitch::new(),
