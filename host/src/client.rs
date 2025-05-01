@@ -42,14 +42,14 @@ impl<T, E> FlattenErr for Result<T, E> {
 // ---
 
 impl Client {
-    pub fn new(product_name: &str) -> Self {
-        let client = HostClient::new_raw_nusb(
+    pub fn new(product_name: &str) -> Result<Self, String> {
+        let client = HostClient::try_new_raw_nusb(
             |d| d.product_string() == Some(product_name),
             ERROR_PATH,
             8,
             VarSeqKind::Seq2,
-        );
-        Self { client }
+        )?;
+        Ok(Self { client })
     }
 
     pub async fn wait_closed(&self) {
