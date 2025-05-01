@@ -208,7 +208,6 @@ pub struct Communication {
 
 impl Communication {
     pub fn new(port_name: &str) -> Result<Self, String> {
-        debug!("Here");
         let client = Arc::new(Client::new(port_name)?);
         let motor_command_queue = Arc::new(MotorCommandQueue::new());
         let (motor_data_send, motor_data_recv) = watch::channel(MotorProcessData::default());
