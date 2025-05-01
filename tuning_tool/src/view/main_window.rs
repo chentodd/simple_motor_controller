@@ -133,6 +133,7 @@ impl TuningTool {
         if communication_stopped {
             // Clear other data when communication is stopped
             self.velocity_command = 0.0;
+            self.communication.take();
             self.position_command_parser.reset();
         }
     }
