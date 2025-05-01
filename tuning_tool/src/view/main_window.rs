@@ -3,12 +3,14 @@ use eframe::{
     egui::{self, Ui, Vec2},
 };
 
+use protocol::{ControlMode, MotorCommand, MotorProcessData};
+use tokio::runtime;
+
 use crate::{
     ErrorType, ProfileData, ViewEvent, ViewRequest,
-    communication::Communication,
-    mode_switch::ModeSwitch,
-    position_command_parser::CommandParser,
-    proto::motor_::{MotorRx, MotorTx, Operation},
+    controller::communication::Communication,
+    controller::mode_switch::ModeSwitch,
+    controller::position_command_parser::CommandParser,
     view::window_wrapper::{WindowType, WindowWrapper},
 };
 
@@ -29,10 +31,12 @@ enum InternalRequestState {
     Confirm(InternalRequestType),
 }
 
-pub struct MainWindow {
-    // Serial communication
-    communication: Communication,
-    connection_started: bool,
+pub struct TuningTool {
+    // tokio runtime
+    _rt: runtime::Runtime,
+
+    // USB communication using `postcard-rpc`
+    communication: Option<Communication>,
 
     // Mode switch
     mode_switch: ModeSwitch<6>,
@@ -47,7 +51,7 @@ pub struct MainWindow {
     velocity_command: f32,
 }
 
-impl App for MainWindow {
+impl App for TuningTool {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("funtionality_panel").show(ctx, |ui| {
             ui.columns(2, |col| {
@@ -58,7 +62,7 @@ impl App for MainWindow {
                 });
 
                 col[1].allocate_ui(Vec2::new(0.0, 0.0), |ui| {
-                    if !self.connection_started {
+                    if self.communication.is_none() {
                         ui.disable();
                     }
                     self.window_wrapper
@@ -69,7 +73,7 @@ impl App for MainWindow {
         });
 
         egui::TopBottomPanel::top("command_panel").show(ctx, |ui: &mut Ui| {
-            if !self.connection_started {
+            if self.communication.is_none() {
                 ui.disable();
             }
             self.window_wrapper
@@ -86,6 +90,8 @@ impl App for MainWindow {
                 .show(ui);
         });
 
+        self.handle_communication_error();
+        
         let motor_data_recv = self.collect_motor_data();
         self.collect_conn_status();
 
@@ -93,7 +99,7 @@ impl App for MainWindow {
         self.handle_ui_request();
         self.send_ui_event();
 
-        let mode_switch_result = self.mode_switch.process(motor_data_recv.as_ref());
+        let mode_switch_result = self.mode_switch.process(&motor_data_recv);
         if let Err(e) = mode_switch_result {
             self.view_events.push(ViewEvent::ErrorOccurred(
                 e,
@@ -109,11 +115,15 @@ impl App for MainWindow {
     }
 }
 
-impl MainWindow {
+impl TuningTool {
     pub fn new(_cc: &CreationContext<'_>) -> Self {
         Self {
-            communication: Communication::new(),
-            connection_started: false,
+            _rt: runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap(),
+
+            communication: None,
 
             mode_switch: ModeSwitch::new(),
             internal_request_state: InternalRequestState::default(),
@@ -126,71 +136,76 @@ impl MainWindow {
         }
     }
 
-    fn reset(&mut self, is_stop_ok: bool) {
+    fn reset(&mut self, communication_stopped: bool) {
         self.internal_request_state = InternalRequestState::Idle;
         self.view_events.clear();
-        if is_stop_ok {
-            // Clear other data when stop process is succeeded
+        if communication_stopped {
+            // Clear other data when communication is stopped
             self.velocity_command = 0.0;
             self.position_command_parser.reset();
-            self.connection_started = false;
         }
     }
 
-    fn send_motor_command(&mut self, output_mode: Operation) {
-        if !self.connection_started {
+    fn send_motor_command(&mut self, output_mode: ControlMode) {
+        if self.communication.is_none() {
             return;
         }
 
-        let mut motor_commads = Vec::new();
-        motor_commads.push(MotorRx::default());
-
+        let communication = self.communication.as_mut().unwrap();
         match output_mode {
-            Operation::IntpVel => {
-                let first = motor_commads.first_mut().unwrap();
-                first.set_target_vel(self.velocity_command);
-            }
-            Operation::IntpPos => {
+            ControlMode::Position => {
                 if self.position_command_parser.have_data() {
-                    motor_commads.clear();
                     while let Some(cmd) = self.position_command_parser.get_command() {
-                        let mut pos_cmd = MotorRx::default();
-
-                        pos_cmd.set_target_dist(cmd.dist);
-                        pos_cmd.set_target_vel(cmd.vel);
-                        pos_cmd.set_target_vel_end(cmd.vel_end);
-
-                        motor_commads.push(pos_cmd);
+                        communication.send_motor_command(MotorCommand::PositionCommand(cmd));
                     }
                 }
             }
+            ControlMode::Velocity => communication
+                .send_motor_command(MotorCommand::VelocityCommand(self.velocity_command)),
             _ => (),
-        }
-
-        for mut motor_cmd in motor_commads {
-            motor_cmd.operation = output_mode;
-            self.communication.set_rx_data(motor_cmd);
         }
     }
 
-    fn collect_motor_data(&mut self) -> Option<MotorTx> {
-        if let Some(motor_data) = self.communication.get_tx_data() {
-            self.view_events.push(ViewEvent::ControlModeUpdate((
-                self.mode_switch.is_finished(),
-                motor_data.operation_display,
-            )));
-            self.view_events
-                .push(ViewEvent::ProfileDataUpdate(ProfileData::from(&motor_data)));
-
-            Some(motor_data.clone())
-        } else {
-            None
+    fn collect_motor_data(&mut self) -> MotorProcessData {
+        if self.communication.is_none() {
+            return MotorProcessData::default();
         }
+
+        let communication = self.communication.as_ref().unwrap();
+        let motor_data = communication.get_motor_process_data();
+
+        self.view_events.push(ViewEvent::ControlModeUpdate((
+            self.mode_switch.is_finished(),
+            motor_data.control_mode_display,
+        )));
+
+        self.view_events
+            .push(ViewEvent::ProfileDataUpdate(ProfileData::from(&motor_data)));
+
+        motor_data
     }
 
     fn collect_conn_status(&mut self) {
-        self.view_events
-            .push(ViewEvent::ConnectionStatusUpdate(self.connection_started));
+        self.view_events.push(ViewEvent::ConnectionStatusUpdate(
+            self.communication.is_some(),
+        ));
+    }
+
+    fn handle_communication_error(&mut self) {
+        if self.communication.is_none() {
+            return;
+        }
+
+        let communication = self.communication.as_ref().unwrap();
+        if let Err(e) = communication.get_motor_command_actor_err() {
+            self.view_events
+                .push(ViewEvent::ErrorOccurred(ErrorType::CommunicationError, e));
+        }
+
+        if let Err(e) = communication.get_motor_data_actor_err() {
+            self.view_events
+                .push(ViewEvent::ErrorOccurred(ErrorType::CommunicationError, e));
+        }
     }
 
     fn handle_ui_request(&mut self) {
@@ -203,7 +218,7 @@ impl MainWindow {
             match request {
                 ViewRequest::ErrorDismiss(prev_error_type) => match prev_error_type {
                     ErrorType::StartError | ErrorType::StopError => {
-                        self.communication.reset();
+                        self.communication.take();
                         self.reset(false);
 
                         for window_type in WindowType::iter() {
@@ -231,13 +246,16 @@ impl MainWindow {
             if let Some(request) = a {
                 match request {
                     ViewRequest::ConnectionStart(port_name) => {
-                        if let Err(e) = self.communication.start(&port_name) {
-                            self.view_events.push(ViewEvent::ErrorOccurred(
-                                ErrorType::StartError,
-                                e.to_string(),
-                            ));
-                        } else {
-                            self.connection_started = true;
+                        match Communication::new(&port_name) {
+                            Ok(comm) => {
+                                self.communication = Some(comm);
+                                self.view_events
+                                    .push(ViewEvent::ConnectionStatusUpdate(true));
+                            }
+                            Err(e) => {
+                                self.view_events
+                                    .push(ViewEvent::ErrorOccurred(ErrorType::StartError, e));
+                            }
                         }
                     }
                     ViewRequest::ConnectionStop => {
@@ -261,7 +279,7 @@ impl MainWindow {
                         self.reset(false);
                     }
                     ViewRequest::VelocityControl(cmd) => {
-                        self.mode_switch.ignite(Operation::IntpVel);
+                        self.mode_switch.ignite(ControlMode::Velocity);
                         self.velocity_command = cmd;
                     }
                     ViewRequest::PositionControl(cmd) => {
@@ -271,7 +289,7 @@ impl MainWindow {
                                 e.to_string(),
                             ));
                         } else {
-                            self.mode_switch.ignite(Operation::IntpPos);
+                            self.mode_switch.ignite(ControlMode::Position);
                         }
                     }
                     _ => (),
@@ -293,7 +311,8 @@ impl MainWindow {
     fn handle_close_event(&mut self, ctx: &egui::Context) {
         // Handle close event when user clicks 'x' button
         if ctx.input(|i| i.viewport().close_requested()) {
-            if self.connection_started && self.internal_request_state == InternalRequestState::Idle
+            if self.communication.is_some()
+                && self.internal_request_state == InternalRequestState::Idle
             {
                 // When connection is started and user wants to close UI, an internal request is used.
                 // This internal request will update `target_mode` in `control_mode_window`, create
@@ -309,31 +328,23 @@ impl MainWindow {
     }
 
     fn process_internal_request(&mut self, ctx: &egui::Context) {
+        if self.communication.is_none() {
+            return;
+        }
+
         let internal_request_state = self.internal_request_state;
+        let communication = self.communication.as_ref().unwrap();
         match internal_request_state {
             InternalRequestState::Confirm(req_type) => {
                 if self.mode_switch.is_finished() {
                     // The internal type is stop connection or close app, and they all need to stop connection
-                    let stop_result = self.communication.stop();
-                    if let Err(e) = stop_result {
-                        error!("Fail to stop `communication` {e}");
-                    } else {
-                        error!("Stop connection ok");
-                        self.reset(true);
-                    }
+                    communication.stop();
 
                     match req_type {
-                        InternalRequestType::StopConnection => {
-                            if let Err(e) = stop_result {
-                                self.view_events.push(ViewEvent::ErrorOccurred(
-                                    ErrorType::StopError,
-                                    e.to_string(),
-                                ));
-                            }
-                        }
                         InternalRequestType::CloseApp => {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
+                        _ => (),
                     }
                 }
             }
