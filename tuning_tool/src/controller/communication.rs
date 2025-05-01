@@ -122,6 +122,7 @@ impl MotorCommandActor {
                 },
                 flag = self.cancel_actor_recv.changed() => {
                     if flag.is_ok() {
+                        debug!("process_motor_command(), cancel actor");
                         break Ok(());
                     }
                 }
@@ -187,6 +188,7 @@ impl MotorDataActor {
                 },
                 flag = self.cancel_actor_recv.changed() => {
                     if flag.is_ok() {
+                        debug!("process_motor_data(), cancel actor");
                         break Ok(());
                     }
                 }
