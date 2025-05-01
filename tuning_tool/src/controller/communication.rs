@@ -1,16 +1,14 @@
 use std::collections::VecDeque;
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
-use log::{error, info};
+use log::{debug, error, warn};
 use postcard_rpc::host_client::{HostErr, MultiSubRxError};
 use tokio::select;
 use tokio::sync::{Notify, watch};
 
 use host::client::{Client, ClientError};
 use protocol::*;
-use tokio::time::interval;
 
 struct MotorCommandQueue {
     queue: Mutex<VecDeque<MotorCommand>>,
@@ -73,10 +71,9 @@ impl MotorCommandActor {
         // 3. 9th and 10th commands get stored in internal queue when `buffer_full` is true
         // 4. When `buffer_full` is false, the command in the internal queue will be sent to
         //    the board
-        //
-        // Also, this can be used when error appeared, and it will re-send the command
-        // let mut buffer_full = false;
-        // let mut internal_command_cache = VecDeque::new();
+
+        let mut buffer_full = false;
+        let mut internal_command_cache = VecDeque::new();
 
         let _id = self
             .client
@@ -84,56 +81,51 @@ impl MotorCommandActor {
             .await
             .map_err(|_x| ClientError::Comms(HostErr::Closed))?;
 
-        let mut ticker = interval(Duration::from_secs(1));
         loop {
-            info!("Run motor command actor");
-            ticker.tick().await;
+            select! {
+                motor_command = self.command_queue.process() => {
+                    if motor_command == MotorCommand::Abort {
+                        internal_command_cache.clear();
+                    }
+                    internal_command_cache.push_back(motor_command);
 
+                    if buffer_full {
+                        // Buffer is already full, wait until the buffer is empty
+                        continue;
+                    }
 
-            // select! {
-            //     motor_command = self.command_queue.process() => {
-            //         if motor_command == MotorCommand::Abort {
-            //             internal_command_cache.clear();
-            //         }
-            //         internal_command_cache.push_back(motor_command);
+                    if let Some(command) = internal_command_cache.front() {
+                        debug!("process_motor_command(), command: {command:?}");
 
-            //         if buffer_full {
-            //             // Buffer is already full, wait until the buffer is empty
-            //             continue;
-            //         }
+                        let err = self
+                            .client
+                            .set_motor_cmd(MotorId::Left, motor_command)
+                            .await;
 
-            //         if let Some(command) = internal_command_cache.front() {
-            //             debug!("process_motor_command(), command: {command:?}");
-
-            //             let err = self
-            //                 .client
-            //                 .set_motor_cmd(MotorId::Left, motor_command)
-            //                 .await;
-
-            //             match err {
-            //                 Ok(_) => {
-            //                     // If the command is sent successfully, pop it from the queue
-            //                     internal_command_cache.pop_front();
-            //                     buffer_full = false;
-            //                 }
-            //                 Err(e) => match e {
-            //                     ClientError::Endpoint(CommandError::BufferFull(_)) => {
-            //                         buffer_full = true;
-            //                     }
-            //                     ClientError::Comms(e) => {
-            //                         error!("process_motor_command(), unexpected error: {e:?}");
-            //                         break Err(ClientError::Comms(e));
-            //                     },
-            //                 },
-            //             }
-            //         }
-            //     },
-            //     flag = self.cancel_actor_recv.changed() => {
-            //         if flag.is_ok() {
-            //             break Ok(());
-            //         }
-            //     }
-            // }
+                        match err {
+                            Ok(_) => {
+                                // If the command is sent successfully, pop it from the queue
+                                internal_command_cache.pop_front();
+                                buffer_full = false;
+                            }
+                            Err(e) => match e {
+                                ClientError::Endpoint(CommandError::BufferFull(_)) => {
+                                    buffer_full = true;
+                                }
+                                ClientError::Comms(e) => {
+                                    error!("process_motor_command(), unexpected error: {e:?}");
+                                    break Err(ClientError::Comms(e));
+                                },
+                            },
+                        }
+                    }
+                },
+                flag = self.cancel_actor_recv.changed() => {
+                    if flag.is_ok() {
+                        break Ok(());
+                    }
+                }
+            }
         }
     }
 }
@@ -168,39 +160,37 @@ impl MotorDataActor {
         // Check `ping` to make sure the device is connected
         let _id = self.client.ping(0).await?;
 
-        let mut ticker = interval(Duration::from_secs(1));
         loop {
-            info!("Run motor data actor");
-            ticker.tick().await;
-
-            // select! {
-            //     res = sub.recv() => {
-            //         match res {
-            //             Ok(data) => {
-            //                 if let Err(e) = self.data_send.send(data.1) {
-            //                     error!("process_motor_data(), failed to send data: {e}");
-            //                     break Ok(());
-            //                 }
-            //             }
-            //             Err(e) => {
-            //                 match e {
-            //                     MultiSubRxError::IoClosed => {
-            //                         error!("process_motor_data(), io closed");
-            //                         break Err(ClientError::Comms(HostErr::Closed));
-            //                     },
-            //                     MultiSubRxError::Lagged(x) => {
-            //                         warn!("process_motor_data(), lag: {x}");
-            //                     },
-            //                 }
-            //             }
-            //         };
-            //     },
-            //     flag = self.cancel_actor_recv.changed() => {
-            //         if flag.is_ok() {
-            //             break Ok(());
-            //         }
-            //     }
-            // }
+            select! {
+                res = sub.recv() => {
+                    match res {
+                        Ok(data) => {
+                            if data.0 == MotorId::Left {
+                                if let Err(e) = self.data_send.send(data.1) {
+                                    error!("process_motor_data(), failed to send data: {e}");
+                                    break Ok(());
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            match e {
+                                MultiSubRxError::IoClosed => {
+                                    error!("process_motor_data(), io closed");
+                                    break Err(ClientError::Comms(HostErr::Closed));
+                                },
+                                MultiSubRxError::Lagged(x) => {
+                                    warn!("process_motor_data(), lag: {x}");
+                                },
+                            }
+                        }
+                    };
+                },
+                flag = self.cancel_actor_recv.changed() => {
+                    if flag.is_ok() {
+                        break Ok(());
+                    }
+                }
+            }
         }
     }
 }
@@ -216,6 +206,7 @@ pub struct Communication {
 
 impl Communication {
     pub fn new(port_name: &str) -> Result<Self, String> {
+        debug!("Here");
         let client = Arc::new(Client::new(port_name)?);
         let motor_command_queue = Arc::new(MotorCommandQueue::new());
         let (motor_data_send, motor_data_recv) = watch::channel(MotorProcessData::default());
@@ -251,7 +242,9 @@ impl Communication {
     }
 
     pub fn stop(&self) {
-        self.cancel_actor_send.send(true).expect("Fail to send stop signal");
+        self.cancel_actor_send
+            .send(true)
+            .expect("Fail to send stop signal");
     }
 
     pub fn send_motor_command(&mut self, data: MotorCommand) {
