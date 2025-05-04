@@ -71,11 +71,12 @@ impl UiView for CommandWindow {
     fn handle_event(&mut self, event: ViewEvent) {
         match event {
             ViewEvent::ControlModeUpdate((ok, mode)) => {
+                if mode == ControlMode::StandStill {
+                    self.reset();
+                }
+
                 if ok {
                     self.curr_control_mode = mode;
-                    if self.curr_control_mode == ControlMode::Stop {
-                        self.reset();
-                    }
                 }
             }
             _ => (),
