@@ -191,21 +191,7 @@ impl TuningTool {
         let communication = self.communication.as_ref().unwrap();
         let motor_data = communication.get_motor_process_data();
 
-        self.view_events.push(ViewEvent::ControlModeUpdate((
-            self.mode_switch.is_finished(),
-            motor_data.control_mode_display,
-        )));
-
-        self.view_events
-            .push(ViewEvent::ProfileDataUpdate(ProfileData::from(&motor_data)));
-
         Some(motor_data)
-    }
-
-    fn collect_conn_status(&mut self) {
-        self.view_events.push(ViewEvent::ConnectionStatusUpdate(
-            self.communication.is_some(),
-        ));
     }
 
     fn handle_communication_error(&mut self) {
