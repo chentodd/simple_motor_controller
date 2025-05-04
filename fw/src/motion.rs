@@ -56,13 +56,15 @@ impl<
     }
 
     pub fn read_cmd_from_queue(&mut self) {
-        if let Some(left_cmd) = self.cmd_sub.try_next_message() {
-            match left_cmd {
+        if let Some(cmd) = self.cmd_sub.try_next_message() {
+            match cmd {
                 WaitResult::Message(cmd) => {
                     if cmd == MotorCommand::Halt {
                         self.cmd_queue.clear();
                     }
-                    self.set_command(cmd);
+
+                    // cmd_queue is used as a cache to hold commands from host
+                    let _ = self.cmd_queue.push_back(cmd);
                 }
                 _ => (),
             }
@@ -87,8 +89,43 @@ impl<
     }
 
     pub fn run(&mut self) {
-        // Process abort process if controller gets abort request
-        self.process_abort();
+        // Process that reads command from queue and set command if it is ok
+        let mut ready_to_set = match self.control_mode {
+            ControlMode::Velocity | ControlMode::StandStill => true,
+            ControlMode::Position => self.ready(),
+        };
+
+        if self.halt_process_state != HaltProcessState::Idle {
+            // Halt process is running, do not set command
+            ready_to_set = false;
+        }
+
+        if ready_to_set {
+            // It is ok to set command, read cmd from queue
+            if let Some(cmd) = self.cmd_queue.pop_front() {
+                match cmd {
+                    MotorCommand::Halt => {
+                        self.halt_process_state = HaltProcessState::Ignite;
+                        match self.control_mode {
+                            ControlMode::Position => self.s_curve_intper.stop(),
+                            ControlMode::Velocity => self.motor.set_target_velocity(0.0),
+                            _ => (),
+                        }
+                    }
+                    MotorCommand::PositionCommand(x) => {
+                        self.control_mode = ControlMode::Position;
+                        self.set_pos_command(x);
+                    }
+                    MotorCommand::VelocityCommand(x) => {
+                        self.control_mode = ControlMode::Velocity;
+                        self.motor.set_target_velocity(x);
+                    }
+                }
+            }
+        }
+
+        // Process halt if controller gets halt request
+        self.process_halt();
 
         // Interpolate position command if current operation if IntpPos and update
         // target velocity in pid velocity control loop
