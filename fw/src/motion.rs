@@ -3,6 +3,10 @@ use embassy_sync::{
     blocking_mutex::raw::RawMutex,
     pubsub::{Subscriber, WaitResult},
 };
+
+#[cfg(feature = "debug-motion")]
+use defmt::{debug, Debug2Format};
+
 use heapless::Deque;
 use protocol::{ControlMode, MotorCommand, MotorProcessData, PositionCommand};
 
@@ -179,14 +183,14 @@ impl<
         #[cfg(feature = "debug-motion")]
         debug!(
             "set_pos_command, {}, {}, {}, {}",
-            command.target_dist,
+            cmd.displacement,
             self.motor.encoder.get_act_velocity_in_rpm(),
             vel_end,
-            vel
+            vel_max
         );
     }
 
-    fn ready(&mut self) -> bool {
+    fn ready(&self) -> bool {
         let is_ready = match self.control_mode {
             ControlMode::Position => {
                 #[cfg(feature = "debug-motion")]
