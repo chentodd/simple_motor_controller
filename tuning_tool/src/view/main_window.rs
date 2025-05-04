@@ -155,9 +155,9 @@ impl TuningTool {
     fn reset(&mut self, communication_stopped: bool) {
         self.internal_request_state = InternalRequestState::Idle;
         self.view_events.clear();
+        self.velocity_command = 0.0;
         if communication_stopped {
             // Clear other data when communication is stopped
-            self.velocity_command = 0.0;
             self.communication.take();
             self.position_command_parser.reset();
         }
@@ -187,7 +187,11 @@ impl TuningTool {
             }
             ControlMode::Velocity => communication
                 .send_motor_command(MotorCommand::VelocityCommand(self.velocity_command)),
-            ControlMode::Stop => communication.send_motor_command(MotorCommand::Abort),
+            ControlMode::StandStill => {
+                self.velocity_command = 0.0;
+                self.position_command_parser.reset();
+                communication.send_motor_command(MotorCommand::Halt)
+            }
         }
     }
 
