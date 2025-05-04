@@ -9,7 +9,8 @@ use protocol::{ControlMode, MotorCommand, MotorProcessData, PositionCommand};
 use crate::{motor::*, rad_s_to_rpm, rpm_to_rad_s};
 use s_curve::*;
 
-enum AbortProcessState {
+#[derive(PartialEq)]
+enum HaltProcessState {
     Idle,
     Ignite,
     Running,
@@ -25,7 +26,7 @@ pub struct Motion<
 > {
     pub motor: BldcMotor24H<'a, T1, T2>,
     pub s_curve_intper: SCurveInterpolator,
-    abort_process_state: AbortProcessState,
+    halt_process_state: HaltProcessState,
     cmd_sub: Subscriber<'a, M, MotorCommand, QUEUE_SIZE, 1, 1>,
     cmd_queue: Deque<MotorCommand, QUEUE_SIZE>,
     control_mode: ControlMode,
@@ -47,7 +48,7 @@ impl<
         Self {
             motor,
             s_curve_intper,
-            abort_process_state: AbortProcessState::Idle,
+            halt_process_state: HaltProcessState::Idle,
             cmd_sub,
             cmd_queue: Deque::new(),
             control_mode: ControlMode::Velocity,
@@ -58,7 +59,7 @@ impl<
         if let Some(left_cmd) = self.cmd_sub.try_next_message() {
             match left_cmd {
                 WaitResult::Message(cmd) => {
-                    if cmd == MotorCommand::Abort {
+                    if cmd == MotorCommand::Halt {
                         self.cmd_queue.clear();
                     }
                     self.set_command(cmd);
@@ -111,54 +112,18 @@ impl<
         self.motor.run_pid_velocity_control();
     }
 
-    fn set_command(&mut self, mut cmd: MotorCommand) {
-        if self.cmd_queue.is_full() {
-            return;
-        }
-
-        // cmd_queue is used as a backup when command can't be set
-        let _ = self.cmd_queue.push_back(cmd);
-        let ready_to_set = match self.control_mode {
-            ControlMode::Velocity | ControlMode::Stop => true,
-            ControlMode::Position => self.ready(),
-        };
-
-        if ready_to_set {
-            // Ok to set command, read cmd from queue
-            cmd = self.cmd_queue.pop_front().unwrap();
-            match cmd {
-                MotorCommand::Abort => {
-                    self.abort_process_state = AbortProcessState::Ignite;
-                    match self.control_mode {
-                        ControlMode::Position => self.s_curve_intper.stop(),
-                        ControlMode::Velocity => self.motor.set_target_velocity(0.0),
-                        _ => (),
-                    }
-                }
-                MotorCommand::PositionCommand(x) => {
-                    self.control_mode = ControlMode::Position;
-                    self.set_pos_command(x);
-                }
-                MotorCommand::VelocityCommand(x) => {
-                    self.control_mode = ControlMode::Velocity;
-                    self.motor.set_target_velocity(x);
-                }
-            }
-        }
-    }
-
-    fn process_abort(&mut self) {
-        match self.abort_process_state {
-            AbortProcessState::Ignite => self.abort_process_state = AbortProcessState::Running,
-            AbortProcessState::Running => {
+    fn process_halt(&mut self) {
+        match self.halt_process_state {
+            HaltProcessState::Ignite => self.halt_process_state = HaltProcessState::Running,
+            HaltProcessState::Running => {
                 if self.ready() {
-                    self.abort_process_state = AbortProcessState::Finished;
+                    self.halt_process_state = HaltProcessState::Finished;
                 }
             }
-            AbortProcessState::Finished => {
-                // Stop control mode will be set if motor is standstill
-                self.abort_process_state = AbortProcessState::Idle;
-                self.control_mode = ControlMode::Stop;
+            HaltProcessState::Finished => {
+                // Standstill control mode will be set when halt process is finished
+                self.halt_process_state = HaltProcessState::Idle;
+                self.control_mode = ControlMode::StandStill;
             }
             _ => (),
         }
@@ -201,7 +166,7 @@ impl<
 
                 self.motor.pid.get_error().abs() <= 60.0
             }
-            ControlMode::Stop => true,
+            ControlMode::StandStill => true,
         };
 
         is_ready
