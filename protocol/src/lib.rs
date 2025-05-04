@@ -36,7 +36,7 @@ pub enum ControlMode {
     Position,
     #[default]
     Velocity,
-    Stop,
+    StandStill,
 }
 
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
@@ -44,7 +44,7 @@ pub enum CommandError {
     BufferFull(MotorId),
 }
 
-#[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Clone, Copy)]
+#[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Clone, Copy, Default)]
 pub struct PositionCommand {
     pub displacement: f32,
     pub vel_max: f32,
@@ -59,7 +59,7 @@ pub enum MotorId {
 
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Clone, Copy)]
 pub enum MotorCommand {
-    Abort,
+    Halt,
     VelocityCommand(f32),
     PositionCommand(PositionCommand)
 }
@@ -85,7 +85,7 @@ mod display_impl {
             match self {
                 ControlMode::Position => write!(f, "Position"),
                 ControlMode::Velocity => write!(f, "Velocity"),
-                ControlMode::Stop => write!(f, "Stop"),
+                ControlMode::StandStill => write!(f, "StandStill"),
             }
         }
     }
