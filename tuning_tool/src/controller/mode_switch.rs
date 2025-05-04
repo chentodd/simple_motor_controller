@@ -57,12 +57,13 @@ impl<const TIMEOUTSEC: u64> ModeSwitch<TIMEOUTSEC> {
         }
 
         // When user asks to switch connection, we will do:
-        // 1. Send stop mode to the board, make sure motor is not moving
+        // 1. Change control mode to standstill by sending halt command to the board
         // 2. Send target operation mode
         self.ignited = true;
         self.states.clear();
         self.states.push((target_mode, ModeSwitchState::Idle));
-        self.states.push((ControlMode::Stop, ModeSwitchState::Idle));
+        self.states
+            .push((ControlMode::StandStill, ModeSwitchState::Idle));
     }
 
     pub fn process(&mut self, motor_data: &MotorProcessData) -> Result<ControlMode, ErrorType> {

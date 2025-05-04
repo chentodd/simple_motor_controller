@@ -39,13 +39,13 @@ impl UiView for ControlModeWindow {
                 ui.selectable_value(
                     &mut self.target_control_mode,
                     ControlMode::Velocity,
-                    "IntpVel",
+                    "Velocity",
                 );
             });
 
         // Check if we need to do mode switch
         let modal_title = if let Some(title) = self.internal_request.take() {
-            self.target_control_mode = ControlMode::Stop;
+            self.target_control_mode = ControlMode::StandStill;
             title.to_string()
         } else {
             "Switch control mode".to_string()
