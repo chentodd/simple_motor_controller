@@ -3,7 +3,7 @@ use eframe::{
     egui::{self, Ui, Vec2},
 };
 
-use protocol::{ControlMode, MotorCommand, MotorProcessData};
+use protocol::{ControlMode, MotorCommand, MotorProcessData, PositionCommand};
 
 use crate::{
     ErrorType, ProfileData, ViewEvent, ViewRequest,
@@ -175,6 +175,14 @@ impl TuningTool {
                     while let Some(cmd) = self.position_command_parser.get_command() {
                         communication.send_motor_command(MotorCommand::PositionCommand(cmd));
                     }
+                } else if !self.mode_switch.is_finished() {
+                    // In this branch:
+                    // 1. There are no position commands in the queue
+                    // 2. The mode switch is not finished
+                    // so we send a defualt position command to the board to switch control mode
+                    communication.send_motor_command(MotorCommand::PositionCommand(
+                        PositionCommand::default(),
+                    ));
                 }
             }
             ControlMode::Velocity => communication
