@@ -1,60 +1,30 @@
 use std::collections::VecDeque;
 use std::convert::Infallible;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use log::{debug, error, warn};
 use postcard_rpc::host_client::{HostErr, MultiSubRxError};
 use tokio::select;
-use tokio::sync::{Notify, watch};
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::{mpsc, watch};
 
 use host::client::{Client, ClientError};
 use protocol::*;
 
-struct MotorCommandQueue {
-    queue: Mutex<VecDeque<MotorCommand>>,
-    signal: Notify,
-}
-
-impl MotorCommandQueue {
-    fn new() -> Self {
-        Self {
-            queue: Mutex::new(VecDeque::new()),
-            signal: Notify::new(),
-        }
-    }
-
-    fn send(&self, command: MotorCommand) {
-        let mut queue = self.queue.lock().unwrap();
-
-        if command == MotorCommand::Abort {
-            queue.clear();
-        }
-        queue.push_back(command);
-
-        self.signal.notify_one();
-    }
-
-    async fn process(&self) -> MotorCommand {
-        // Wait until signal gets notified which means there are commands to process
-        self.signal.notified().await;
-
-        let mut queue = self.queue.lock().unwrap();
-        queue.pop_front().unwrap()
-    }
-}
-
 struct MotorCommandActor {
     client: Arc<Client>,
-    command_queue: Arc<MotorCommandQueue>,
+    halt_command_recv: mpsc::Receiver<()>,
+    command_queue_send_internal: UnboundedSender<MotorCommand>,
+    command_queue_recv: mpsc::UnboundedReceiver<MotorCommand>,
     cancel_actor_recv: watch::Receiver<bool>,
-    task_err: watch::Sender<Result<(), String>>,
+    task_err_send: watch::Sender<Result<(), String>>,
 }
 
 impl MotorCommandActor {
     async fn run(&mut self) {
         let result = self.run_internal().await;
         if let Err(e) = result {
-            self.task_err
+            self.task_err_send
                 .send(Err(format!("{e:?}")))
                 .expect("Failed to send result in motor command actor");
 
@@ -73,7 +43,7 @@ impl MotorCommandActor {
         //    the board
 
         let mut buffer_full = false;
-        let mut internal_command_cache = VecDeque::new();
+        let mut internal_command_cache = VecDeque::<MotorCommand>::new();
 
         let _id = self
             .client
@@ -83,10 +53,25 @@ impl MotorCommandActor {
 
         loop {
             select! {
-                motor_command = self.command_queue.process() => {
-                    if motor_command == MotorCommand::Abort {
-                        internal_command_cache.clear();
+                biased;
+
+                flag = self.cancel_actor_recv.changed() => {
+                    if flag.is_ok() {
+                        debug!("process_motor_command(), cancel actor");
+                        break Ok(());
                     }
+                },
+                Some(()) = self.halt_command_recv.recv() => {
+                    debug!("process_motor_command(), halt");
+                    while let Ok(_) = self.command_queue_recv.try_recv() {
+                        // Consume all the commands in the queue
+                    }
+
+                    // Ignore the error because the receiver is held by the actor
+                    let _ = self.command_queue_send_internal.send(MotorCommand::Halt);
+                },
+                Some(motor_command) = self.command_queue_recv.recv() => {
+                    debug!("receive, command: {motor_command:?}");
                     internal_command_cache.push_back(motor_command);
 
                     if buffer_full {
@@ -95,11 +80,9 @@ impl MotorCommandActor {
                     }
 
                     if let Some(command) = internal_command_cache.front() {
-                        debug!("process_motor_command(), command: {command:?}");
-
                         let err = self
                             .client
-                            .set_motor_cmd(MotorId::Left, motor_command)
+                            .set_motor_cmd(MotorId::Left, command.clone())
                             .await;
 
                         match err {
@@ -111,6 +94,7 @@ impl MotorCommandActor {
                             Err(e) => match e {
                                 ClientError::Endpoint(CommandError::BufferFull(_)) => {
                                     buffer_full = true;
+                                    warn!("buffer full, waiting for the buffer to be empty");
                                 }
                                 ClientError::Comms(e) => {
                                     error!("process_motor_command(), unexpected error: {e:?}");
@@ -120,12 +104,6 @@ impl MotorCommandActor {
                         }
                     }
                 },
-                flag = self.cancel_actor_recv.changed() => {
-                    if flag.is_ok() {
-                        debug!("process_motor_command(), cancel actor");
-                        break Ok(());
-                    }
-                }
             }
         }
     }
@@ -135,14 +113,14 @@ struct MotorDataActor {
     client: Arc<Client>,
     data_send: watch::Sender<MotorProcessData>,
     cancel_actor_recv: watch::Receiver<bool>,
-    task_err: watch::Sender<Result<(), String>>,
+    task_err_send: watch::Sender<Result<(), String>>,
 }
 
 impl MotorDataActor {
     async fn run(&mut self) {
         let result = self.run_internal().await;
         if let Err(e) = result {
-            self.task_err
+            self.task_err_send
                 .send(Err(format!("{e:?}")))
                 .expect("Failed to send result in motor data actor");
 
@@ -163,6 +141,14 @@ impl MotorDataActor {
 
         loop {
             select! {
+                biased;
+
+                flag = self.cancel_actor_recv.changed() => {
+                    if flag.is_ok() {
+                        debug!("process_motor_data(), cancel actor");
+                        break Ok(());
+                    }
+                },
                 res = sub.recv() => {
                     match res {
                         Ok(data) => {
@@ -186,58 +172,57 @@ impl MotorDataActor {
                         }
                     };
                 },
-                flag = self.cancel_actor_recv.changed() => {
-                    if flag.is_ok() {
-                        debug!("process_motor_data(), cancel actor");
-                        break Ok(());
-                    }
-                }
             }
         }
     }
 }
 
 pub struct Communication {
-    motor_command_queue: Arc<MotorCommandQueue>,
-    motor_data_recv: watch::Receiver<MotorProcessData>,
+    halt_command_send: mpsc::Sender<()>,
+    command_queue_send: mpsc::UnboundedSender<MotorCommand>,
+    data_recv: watch::Receiver<MotorProcessData>,
     cancel_actor_send: watch::Sender<bool>,
-    motor_command_actor_err_recv: watch::Receiver<Result<(), String>>,
-    motor_data_actor_err_recv: watch::Receiver<Result<(), String>>,
+    command_actor_err_recv: watch::Receiver<Result<(), String>>,
+    data_actor_err_recv: watch::Receiver<Result<(), String>>,
     prev_command: Option<MotorCommand>,
 }
 
 impl Communication {
     pub fn new(port_name: &str) -> Result<Self, String> {
         let client = Arc::new(Client::new(port_name)?);
-        let motor_command_queue = Arc::new(MotorCommandQueue::new());
-        let (motor_data_send, motor_data_recv) = watch::channel(MotorProcessData::default());
+        let (halt_command_send, halt_command_recv) = mpsc::channel::<()>(1);
+        let (command_queue_send, command_queue_recv) = mpsc::unbounded_channel::<MotorCommand>();
+        let (data_send, data_recv) = watch::channel(MotorProcessData::default());
         let (cancel_actor_send, cancel_actor_recv) = watch::channel(false);
-        let (motor_command_actor_err_send, motor_command_actor_err_recv) = watch::channel(Ok(()));
-        let (motor_data_actor_err_send, motor_data_actor_err_recv) = watch::channel(Ok(()));
+        let (command_actor_err_send, command_actor_err_recv) = watch::channel(Ok(()));
+        let (data_actor_err_send, data_actor_err_recv) = watch::channel(Ok(()));
 
         let mut motor_command_actor = MotorCommandActor {
             client: client.clone(),
-            command_queue: motor_command_queue.clone(),
+            halt_command_recv,
+            command_queue_send_internal: command_queue_send.clone(),
+            command_queue_recv,
             cancel_actor_recv: cancel_actor_recv.clone(),
-            task_err: motor_command_actor_err_send,
+            task_err_send: command_actor_err_send,
         };
 
         let mut motor_data_actor = MotorDataActor {
             client: client.clone(),
-            data_send: motor_data_send,
+            data_send,
             cancel_actor_recv: cancel_actor_recv.clone(),
-            task_err: motor_data_actor_err_send,
+            task_err_send: data_actor_err_send,
         };
 
         tokio::spawn(async move { motor_command_actor.run().await });
         tokio::spawn(async move { motor_data_actor.run().await });
 
         Ok(Self {
-            motor_command_queue,
-            motor_data_recv,
+            halt_command_send,
+            command_queue_send,
+            data_recv,
             cancel_actor_send,
-            motor_command_actor_err_recv: motor_command_actor_err_recv,
-            motor_data_actor_err_recv: motor_data_actor_err_recv,
+            command_actor_err_recv,
+            data_actor_err_recv,
             prev_command: None,
         })
     }
@@ -249,23 +234,36 @@ impl Communication {
     }
 
     pub fn send_motor_command(&mut self, data: MotorCommand) {
-        if self.prev_command.is_some_and(|x| x == data) {
-            return;
+        match data {
+            MotorCommand::VelocityCommand(_) | MotorCommand::Halt => {
+                if self.prev_command.is_some_and(|x| x == data) {
+                    return;
+                }
+            }
+            _ => (),
         }
 
-        self.motor_command_queue.send(data);
+        self.command_queue_send
+            .send(data.clone())
+            .expect("Failed to send command");
+
+        if data == MotorCommand::Halt {
+            self.halt_command_send
+                .try_send(())
+                .expect("Failed to send halt signal");
+        }
         self.prev_command = Some(data);
     }
 
     pub fn get_motor_process_data(&self) -> MotorProcessData {
-        *self.motor_data_recv.borrow()
+        *self.data_recv.borrow()
     }
 
     pub fn get_motor_command_actor_err(&self) -> Result<(), String> {
-        self.motor_command_actor_err_recv.borrow().clone()
+        self.command_actor_err_recv.borrow().clone()
     }
 
     pub fn get_motor_data_actor_err(&self) -> Result<(), String> {
-        self.motor_data_actor_err_recv.borrow().clone()
+        self.data_actor_err_recv.borrow().clone()
     }
 }
