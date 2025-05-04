@@ -89,15 +89,14 @@ impl App for TuningTool {
         self.handle_communication_error();
         self.handle_close_event(ctx);
         self.handle_ui_request();
-        self.send_ui_event();
         self.process_internal_request(&ctx);
 
-        // Process view events, mode switch and send motor command after handling UIs to 
+        // Process view events, mode switch and send motor command after handling UIs to
         // make sure correct data is set to UI.
         //
-        // The ideal workflow is: 
-        // [UI] -> [Update connection status] -> *[Mode switch] -> [Update control mode] -> 
-        // [Update profile data] -> [Send motor command]
+        // The ideal workflow is:
+        // [UI] -> [Update connection status] -> *[Mode switch] -> [Update control mode] ->
+        // [Update profile data] -> [Send motor command] -> [Send events to UI]
         //
         // For example, if the user clicks 'Stop' button:
         // 1. UI, control mode window sends request to stop connection
@@ -131,6 +130,7 @@ impl App for TuningTool {
                 self.send_motor_command(mode);
             }
         }
+        self.send_ui_event();
 
         ctx.request_repaint();
     }
