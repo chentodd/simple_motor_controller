@@ -232,7 +232,9 @@ impl TuningTool {
         {
             match request {
                 ViewRequest::ErrorDismiss(prev_error_type) => match prev_error_type {
-                    ErrorType::StartError | ErrorType::StopError => {
+                    ErrorType::StartError
+                    | ErrorType::StopError
+                    | ErrorType::CommunicationError => {
                         self.communication.take();
                         self.reset(false);
 
