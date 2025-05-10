@@ -177,6 +177,13 @@ impl MotorDataActor {
     }
 }
 
+impl Drop for Communication {
+    fn drop(&mut self) {
+        debug!("Communication actor is dropped");
+        let _ = self.stop();
+    }
+}
+
 pub struct Communication {
     halt_command_send: mpsc::Sender<()>,
     command_queue_send: mpsc::UnboundedSender<MotorCommand>,
