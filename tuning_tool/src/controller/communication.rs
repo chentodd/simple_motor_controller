@@ -250,14 +250,15 @@ impl Communication {
             _ => (),
         }
 
-        self.command_queue_send
-            .send(data.clone())
-            .expect("Failed to send command");
+        // The error arise when the receiver is dropped which means the actor has
+        // communcation error, and we need restart the actor again. When this
+        // happens, I think we don't need to handle the error as we are going to
+        // restart the actor anyway.
+        let _ = self.command_queue_send.send(data.clone());
 
         if data == MotorCommand::Halt {
-            self.halt_command_send
-                .try_send(())
-                .expect("Failed to send halt signal");
+            // Same as above, we don't need to handle the error
+            let _ = self.halt_command_send.try_send(());
         }
         self.prev_command = Some(data);
     }
