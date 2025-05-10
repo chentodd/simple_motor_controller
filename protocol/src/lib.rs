@@ -17,6 +17,7 @@ endpoints! {
 topics! {
     list = TOPICS_IN_LIST;
     direction = TopicDirection::ToServer;
+    omit_std = true;
     | TopicTy                     | MessageTy                     | Path          |
     | ----------                  | ----------                    | ----------    |
 }
@@ -25,6 +26,7 @@ topics! {
 topics! {
     list = TOPICS_OUT_LIST;
     direction = TopicDirection::ToClient;
+    omit_std = true;
     | TopicTy                     | MessageTy                     | Path          | Cfg                |
     | ----------                  | ----------                    | ----------    | ----------         |
     | MotorProcessDataTopic       | (MotorId, MotorProcessData)   | "motor/data"  |                    |
