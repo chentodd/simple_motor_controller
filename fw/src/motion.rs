@@ -96,19 +96,18 @@ impl<
 
     pub fn run(&mut self) {
         // Process that reads command from queue and set command if it is ok
-        let mut ready_to_set = match self.control_mode {
-            ControlMode::Velocity | ControlMode::StandStill => true,
-            ControlMode::Position => self.ready(),
-        };
+        if let Some(&cmd) = self.cmd_queue.front() {
+            let mut ready_to_set = match cmd {
+                MotorCommand::VelocityCommand(_) | MotorCommand::Halt => true,
+                MotorCommand::PositionCommand(_) => self.ready(),
+            };
 
-        if self.halt_process_state != HaltProcessState::Idle {
-            // Halt process is running, do not set command
-            ready_to_set = false;
-        }
+            if self.halt_process_state != HaltProcessState::Idle {
+                // Halt process is running, do not set command
+                ready_to_set = false;
+            }
 
-        if ready_to_set {
-            // It is ok to set command, read cmd from queue
-            if let Some(cmd) = self.cmd_queue.pop_front() {
+            if ready_to_set {
                 match cmd {
                     MotorCommand::Halt => {
                         self.halt_process_state = HaltProcessState::Ignite;
@@ -127,6 +126,9 @@ impl<
                         self.motor.set_target_velocity(x);
                     }
                 }
+
+                // Command is set, pop it from queue
+                self.cmd_queue.pop_front();
             }
         }
 
