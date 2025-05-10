@@ -117,7 +117,7 @@ define_dispatch! {
 
         | EndpointTy                    | kind      | handler                       |
         | ----------                    | ----      | -------                       |
-        | SetMotorCommandEndPoint       | blocking  | set_motor_cmd_handler         |
+        | SetMotorCommandEndPoint       | async     | set_motor_cmd_handler         |
     };
     topics_in: {
         list: TOPICS_IN_LIST;
@@ -246,7 +246,7 @@ pub async fn motor_data_publish_task(
     }
 }
 
-fn set_motor_cmd_handler(
+async fn set_motor_cmd_handler(
     context: &mut Context,
     _header: VarHeader,
     rqst: (MotorId, MotorCommand),
@@ -274,10 +274,14 @@ fn set_motor_cmd_handler(
         ),
     };
 
-    if queue_status
-        .try_get()
-        .is_none_or(|x| x.is_queue_full == false)
-    {
+    // The `Halt` command has the highest priority, so it can be sent when the queue in motion
+    // struct is full.
+    let can_push = match rqst.1 {
+        MotorCommand::VelocityCommand(_) | MotorCommand::Halt => true,
+        MotorCommand::PositionCommand(_) => !queue_status.changed().await.is_queue_full,
+    };
+
+    if can_push {
         channel_pub
             .try_publish(rqst.1)
             .map_err(|_e| CommandError::BufferFull(rqst.0))
