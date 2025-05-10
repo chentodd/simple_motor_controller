@@ -227,10 +227,10 @@ impl Communication {
         })
     }
 
-    pub fn stop(&self) {
+    pub fn stop(&self) -> Result<(), String> {
         self.cancel_actor_send
             .send(true)
-            .expect("Fail to send stop signal");
+            .map_err(|x| format!("Failed to send cancel signal, msg: {x}"))
     }
 
     pub fn send_motor_command(&mut self, data: MotorCommand) {
