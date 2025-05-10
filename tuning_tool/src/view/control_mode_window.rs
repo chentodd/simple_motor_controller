@@ -112,6 +112,7 @@ impl UiView for ControlModeWindow {
             ViewEvent::ControlModeUpdate((ok, mode)) => {
                 if ok {
                     self.curr_control_mode = mode;
+                    self.backup_control_mode = mode;
                 }
             }
             ViewEvent::InternalStopModeRequest(x) => {
