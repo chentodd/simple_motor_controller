@@ -155,7 +155,11 @@ impl MotorDataActor {
                             if data.0 == MotorId::Left {
                                 if let Err(e) = self.data_send.send(data.1) {
                                     error!("process_motor_data(), failed to send data: {e}");
-                                    break Ok(());
+                                    // I borrow the error type from HostError (it might be a bad idea, and this can be
+                                    // impproved). When this error is triggered, it means when receiver is dropped
+                                    // unexpected, and it should not happen, but I add this error and log message to
+                                    // debug it incase it appears.
+                                    break Err(ClientError::Comms(HostErr::Closed));
                                 }
                             }
                         }
