@@ -42,7 +42,6 @@ impl MotorCommandActor {
         // 4. When `buffer_full` is false, the command in the internal queue will be sent to
         //    the board
 
-        let mut buffer_full = false;
         let mut internal_command_cache = VecDeque::<MotorCommand>::new();
 
         let _id = self
@@ -72,38 +71,35 @@ impl MotorCommandActor {
                 },
                 Some(motor_command) = self.command_queue_recv.recv() => {
                     debug!("receive, command: {motor_command:?}");
-                    internal_command_cache.push_back(motor_command);
-
-                    if buffer_full {
-                        // Buffer is already full, wait until the buffer is empty
-                        continue;
+                    if motor_command == MotorCommand::Halt {
+                        internal_command_cache.clear();
                     }
-
+                    internal_command_cache.push_back(motor_command);
+                },
+                result = async {
                     if let Some(command) = internal_command_cache.front() {
-                        let err = self
+                        self
                             .client
                             .set_motor_cmd(MotorId::Left, command.clone())
-                            .await;
+                            .await?;
+                    }
 
-                        match err {
+                    Ok(())
+                } => {
+                    match result {
                             Ok(_) => {
                                 // If the command is sent successfully, pop it from the queue
                                 internal_command_cache.pop_front();
-                                buffer_full = false;
                             }
                             Err(e) => match e {
-                                ClientError::Endpoint(CommandError::BufferFull(_)) => {
-                                    buffer_full = true;
-                                    warn!("buffer full, waiting for the buffer to be empty");
-                                }
                                 ClientError::Comms(e) => {
                                     error!("process_motor_command(), unexpected error: {e:?}");
                                     break Err(ClientError::Comms(e));
                                 },
+                                _ => (),
                             },
                         }
-                    }
-                },
+                }
             }
         }
     }
