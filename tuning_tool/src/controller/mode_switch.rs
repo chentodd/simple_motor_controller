@@ -42,7 +42,7 @@ impl<const TIMEOUTSEC: u64> ModeSwitch<TIMEOUTSEC> {
     pub fn reset(&mut self) {
         self.states.clear();
         self.ignited = false;
-        self.output_mode = Ok(self.prev_mode);
+        self.output_mode = Ok(ControlMode::StandStill);
     }
 
     pub fn ignite(&mut self, target_mode: ControlMode) {

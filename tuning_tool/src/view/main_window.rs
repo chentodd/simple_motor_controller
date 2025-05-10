@@ -236,6 +236,7 @@ impl TuningTool {
                     | ErrorType::StopError
                     | ErrorType::CommunicationError => {
                         self.communication.take();
+                        self.mode_switch.reset();
                         self.reset(false);
 
                         for window_type in WindowType::iter() {
