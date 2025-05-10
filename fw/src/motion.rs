@@ -62,6 +62,10 @@ impl<
     }
 
     pub fn read_cmd_from_queue(&mut self) {
+        if self.cmd_queue.is_full() {
+            return;
+        }
+
         if let Some(cmd) = self.cmd_sub.try_next_message() {
             match cmd {
                 WaitResult::Message(cmd) => {
