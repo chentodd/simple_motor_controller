@@ -26,13 +26,14 @@ pub struct Motion<
     M: RawMutex,
     T1: GeneralInstance4Channel,
     T2: GeneralInstance4Channel,
-    const QUEUE_SIZE: usize,
+    const CHANNEL_SIZE: usize,
+    const MOTION_QUEUE_SIZE: usize,
 > {
     pub motor: BldcMotor24H<'a, T1, T2>,
     pub s_curve_intper: SCurveInterpolator,
     halt_process_state: HaltProcessState,
-    cmd_sub: Subscriber<'a, M, MotorCommand, QUEUE_SIZE, 1, 1>,
-    cmd_queue: Deque<MotorCommand, QUEUE_SIZE>,
+    cmd_sub: Subscriber<'a, M, MotorCommand, CHANNEL_SIZE, 1, 2>,
+    cmd_queue: Deque<MotorCommand, MOTION_QUEUE_SIZE>,
     control_mode: ControlMode,
 }
 
@@ -41,13 +42,14 @@ impl<
         M: RawMutex,
         T1: GeneralInstance4Channel,
         T2: GeneralInstance4Channel,
-        const QUEUE_SIZE: usize,
-    > Motion<'a, M, T1, T2, QUEUE_SIZE>
+        const CHANNEL_SIZE: usize,
+        const MOTION_QUEUE_SIZE: usize,
+    > Motion<'a, M, T1, T2, CHANNEL_SIZE, MOTION_QUEUE_SIZE>
 {
     pub fn new(
         s_curve_intper: SCurveInterpolator,
         motor: BldcMotor24H<'a, T1, T2>,
-        cmd_sub: Subscriber<'a, M, MotorCommand, QUEUE_SIZE, 1, 1>,
+        cmd_sub: Subscriber<'a, M, MotorCommand, CHANNEL_SIZE, 1, 2>,
     ) -> Self {
         Self {
             motor,

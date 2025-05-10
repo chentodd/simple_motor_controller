@@ -57,6 +57,13 @@ pub struct MotorStatus {
 const PERIOD_S: f32 = 0.005;
 const PWM_HZ: u32 = 20_000;
 const VEL_LIMIT_RPM: f32 = 4000.0;
+
+// The `CHANNEL_SIZE` is used in `PubSubChannel` and `MOTION_CMD_QUEUE_SIZE` is used
+// in motion struct. If the queue in motion struct is full, I want to make sure there
+// are spaces in `PubSubChannel`, so `Halt` command can be sent to motion struct.
+// And for the other commands, since they don't have the same priority as `Halt`, the
+// sender needs to wait until there are spaces in the queue.
+const CHANNEL_SIZE: usize = 48;
 const MOTION_CMD_QUEUE_SIZE: usize = 32;
 
 static TIMER_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
@@ -64,16 +71,16 @@ static EXECUTOR_TIMER: InterruptExecutor = InterruptExecutor::new();
 static LEFT_MOTOR_CMD_CHANNEL: PubSubChannel<
     CriticalSectionRawMutex,
     MotorCommand,
-    MOTION_CMD_QUEUE_SIZE,
+    CHANNEL_SIZE,
     1,
-    1,
+    2,
 > = PubSubChannel::new();
 static RIGHT_MOTOR_CMD_CHANNEL: PubSubChannel<
     CriticalSectionRawMutex,
     MotorCommand,
-    MOTION_CMD_QUEUE_SIZE,
+    CHANNEL_SIZE,
     1,
-    1,
+    2,
 > = PubSubChannel::new();
 static LEFT_MOTOR_STATUS_WATCH: Watch<CriticalSectionRawMutex, MotorStatus, 2> = Watch::new();
 static RIGHT_MOTOR_STATUS_WATCH: Watch<CriticalSectionRawMutex, MotorStatus, 2> = Watch::new();
@@ -81,9 +88,9 @@ static RIGHT_MOTOR_STATUS_WATCH: Watch<CriticalSectionRawMutex, MotorStatus, 2> 
 // postcard-rpc
 pub struct Context {
     pub left_motor_cmd_pub:
-        Publisher<'static, CriticalSectionRawMutex, MotorCommand, MOTION_CMD_QUEUE_SIZE, 1, 1>,
+        Publisher<'static, CriticalSectionRawMutex, MotorCommand, CHANNEL_SIZE, 1, 2>,
     pub right_motor_cmd_pub:
-        Publisher<'static, CriticalSectionRawMutex, MotorCommand, MOTION_CMD_QUEUE_SIZE, 1, 1>,
+        Publisher<'static, CriticalSectionRawMutex, MotorCommand, CHANNEL_SIZE, 1, 2>,
     pub left_motor_status: Receiver<'static, CriticalSectionRawMutex, MotorStatus, 2>,
     pub right_motor_status: Receiver<'static, CriticalSectionRawMutex, MotorStatus, 2>,
 }
@@ -144,6 +151,7 @@ async fn motion_task(
         CriticalSectionRawMutex,
         TIM2,
         TIM3,
+        CHANNEL_SIZE,
         MOTION_CMD_QUEUE_SIZE,
     >,
     mut right_motion_controller: Motion<
@@ -151,6 +159,7 @@ async fn motion_task(
         CriticalSectionRawMutex,
         TIM4,
         TIM3,
+        CHANNEL_SIZE,
         MOTION_CMD_QUEUE_SIZE,
     >,
     left_motor_status: WatchSender<'static, CriticalSectionRawMutex, MotorStatus, 2>,
@@ -191,6 +200,15 @@ pub async fn motor_data_publish_task(
     mut left_motor_status: Receiver<'static, CriticalSectionRawMutex, MotorStatus, 2>,
     mut right_motor_status: Receiver<'static, CriticalSectionRawMutex, MotorStatus, 2>,
     app_sender: Sender<AppTx>,
+    left_command_pub: Publisher<'static, CriticalSectionRawMutex, MotorCommand, CHANNEL_SIZE, 1, 2>,
+    right_command_pub: Publisher<
+        'static,
+        CriticalSectionRawMutex,
+        MotorCommand,
+        CHANNEL_SIZE,
+        1,
+        2,
+    >,
 ) {
     let mut left_motor_topic_seq = 0_u8;
     let mut right_motor_topic_seq = 0_u8;
@@ -363,13 +381,13 @@ async fn main(spawner: Spawner) {
 
     // Create motion controller for left, right wheel
     let left_motion_controller =
-        Motion::<CriticalSectionRawMutex, TIM2, TIM3, MOTION_CMD_QUEUE_SIZE>::new(
+        Motion::<CriticalSectionRawMutex, TIM2, TIM3, CHANNEL_SIZE, MOTION_CMD_QUEUE_SIZE>::new(
             left_s_curve_intper,
             left_wheel,
             LEFT_MOTOR_CMD_CHANNEL.subscriber().unwrap(),
         );
     let right_motion_controller =
-        Motion::<CriticalSectionRawMutex, TIM4, TIM3, MOTION_CMD_QUEUE_SIZE>::new(
+        Motion::<CriticalSectionRawMutex, TIM4, TIM3, CHANNEL_SIZE, MOTION_CMD_QUEUE_SIZE>::new(
             right_s_curve_intper,
             right_wheel,
             RIGHT_MOTOR_CMD_CHANNEL.subscriber().unwrap(),
@@ -423,6 +441,8 @@ async fn main(spawner: Spawner) {
         LEFT_MOTOR_STATUS_WATCH.receiver().unwrap(),
         RIGHT_MOTOR_STATUS_WATCH.receiver().unwrap(),
         server.sender(),
+        LEFT_MOTOR_CMD_CHANNEL.publisher().unwrap(),
+        RIGHT_MOTOR_CMD_CHANNEL.publisher().unwrap(),
     ));
 
     loop {
