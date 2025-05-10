@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use defmt::{error, info};
+use defmt::{info, warn};
 use embassy_executor::{InterruptExecutor, Spawner};
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, ThreadModeRawMutex};
 use embassy_sync::pubsub::{PubSubChannel, Publisher};
@@ -20,6 +20,7 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::{CountingMode, Timer as LLTimer};
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::usb;
+use postcard_rpc::server::WireTxErrorKind;
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -46,7 +47,6 @@ use protocol::*;
 use s_curve::*;
 
 // control loop
-
 #[derive(Clone, Copy)]
 pub struct MotorStatus {
     pub id: MotorId,
@@ -212,11 +212,19 @@ pub async fn motor_data_publish_task(
 ) {
     let mut left_motor_topic_seq = 0_u8;
     let mut right_motor_topic_seq = 0_u8;
+    let mut connected = false;
 
     loop {
         let left_motor_status = left_motor_status.get().await;
         let right_motor_status = right_motor_status.get().await;
 
+        // Here, I use the error to check if connection is broken. If the board
+        // is previously connected, and `Timeout` error is triggered when
+        // publishing the data, then the connection is treated as broken. In
+        // this case, I will send a `Halt` command to motion struct to stop
+        // motor.
+        // Also, because we publish the data on the same communication bus, so
+        // I only check the error when publishing left motor topic data.
         if let Err(e) = app_sender
             .publish::<MotorProcessDataTopic>(
                 left_motor_topic_seq.into(),
@@ -224,18 +232,27 @@ pub async fn motor_data_publish_task(
             )
             .await
         {
-            error!("Send error, left topic, {:?}", e as i32);
+            match e {
+                WireTxErrorKind::Timeout => {
+                    if connected {
+                        connected = false;
+                        let _ = left_command_pub.try_publish(MotorCommand::Halt);
+                        let _ = right_command_pub.try_publish(MotorCommand::Halt);
+                        warn!("connection is lost, halt motors");
+                    }
+                }
+                _ => (),
+            }
+        } else {
+            connected = true;
         }
 
-        if let Err(e) = app_sender
+        let _ = app_sender
             .publish::<MotorProcessDataTopic>(
                 right_motor_topic_seq.into(),
                 &(right_motor_status.id, right_motor_status.process_data),
             )
-            .await
-        {
-            error!("Send error, right topic, {:?}", e as i32);
-        }
+            .await;
 
         left_motor_topic_seq = left_motor_topic_seq.wrapping_add(1);
         right_motor_topic_seq = right_motor_topic_seq.wrapping_add(1);
