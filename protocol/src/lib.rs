@@ -27,9 +27,10 @@ topics! {
     list = TOPICS_OUT_LIST;
     direction = TopicDirection::ToClient;
     omit_std = true;
-    | TopicTy                     | MessageTy                     | Path          | Cfg                |
-    | ----------                  | ----------                    | ----------    | ----------         |
-    | MotorProcessDataTopic       | (MotorId, MotorProcessData)   | "motor/data"  |                    |
+    | TopicTy                     | MessageTy                     | Path            | Cfg                |
+    | ----------                  | ----------                    | ----------      | ----------         |
+    | MotorProcessDataTopic       | (MotorId, MotorProcessData)   | "motor/data"    |                    |
+    | Mpu6050MotionDataTopic      | Mpu6050MotionData             | "mpu6050/data"  |                    |
 }
 
 
@@ -75,6 +76,16 @@ pub struct MotorProcessData {
     pub intp_vel: f32,
     pub intp_acc: f32,
     pub intp_jerk: f32,
+}
+
+#[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Default)]
+pub struct Mpu6050MotionData {
+    pub acc_x: i16,
+    pub acc_y: i16,
+    pub acc_z: i16,
+    pub g_x: i16,
+    pub g_y: i16,
+    pub g_z: i16,
 }
 
 #[cfg(feature = "use-std")]
