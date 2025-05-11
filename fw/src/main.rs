@@ -15,7 +15,7 @@ use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{InterruptExt, Priority};
 use embassy_stm32::pac;
-use embassy_stm32::peripherals::{self, TIM2, TIM3, TIM4, USB};
+use embassy_stm32::peripherals::{self, TIM2, TIM3, TIM8, USB};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::{CountingMode, Timer as LLTimer};
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
@@ -157,7 +157,7 @@ async fn motion_task(
     mut right_motion_controller: Motion<
         'static,
         CriticalSectionRawMutex,
-        TIM4,
+        TIM8,
         TIM3,
         CHANNEL_SIZE,
         MOTION_CMD_QUEUE_SIZE,
@@ -345,13 +345,13 @@ async fn main(spawner: Spawner) {
     }
     let p = embassy_stm32::init(config);
 
-    let left_wheel_enc: Encoder<'_, TIM2, 400> = Encoder::new(p.TIM2, p.PA0, p.PA1);
+    let left_wheel_enc: Encoder<'_, TIM2, 400> = Encoder::new(p.TIM2, p.PD3, p.PD4);
     let left_wheel_pwm_pin = PwmPin::new_ch3(p.PB0, OutputType::PushPull);
     let left_wheel_dir_pin = Output::new(p.PA4, Level::High, Speed::Low);
     let left_wheel_break_pin = Output::new(p.PC1, Level::High, Speed::Low);
     let left_wheel_pid = Pid::new(0.00006, 0.00124, 0.000000728, 1.0);
 
-    let right_wheel_enc: Encoder<'_, TIM4, 400> = Encoder::new(p.TIM4, p.PB6, p.PB7);
+    let right_wheel_enc: Encoder<'_, TIM8, 400> = Encoder::new(p.TIM8, p.PC6, p.PC7);
     let right_wheel_pwm_pin = PwmPin::new_ch1(p.PB4, OutputType::PushPull);
     let right_wheel_dir_pin = Output::new(p.PB5, Level::High, Speed::Low);
     let right_wheel_break_pin = Output::new(p.PB3, Level::High, Speed::Low);
@@ -408,7 +408,7 @@ async fn main(spawner: Spawner) {
             LEFT_MOTOR_CMD_CHANNEL.subscriber().unwrap(),
         );
     let right_motion_controller =
-        Motion::<CriticalSectionRawMutex, TIM4, TIM3, CHANNEL_SIZE, MOTION_CMD_QUEUE_SIZE>::new(
+        Motion::<CriticalSectionRawMutex, TIM8, TIM3, CHANNEL_SIZE, MOTION_CMD_QUEUE_SIZE>::new(
             right_s_curve_intper,
             right_wheel,
             RIGHT_MOTOR_CMD_CHANNEL.subscriber().unwrap(),

@@ -7,9 +7,15 @@ green: dir
 blue: brk
 
             left            right
-enc_a       PA0(TIM2)       PB6(TIM4)         
-enc_b       PA1(TIM2)       PB7(TIM4)
+enc_a       PD3(TIM2)       PC6(TIM8)         
+enc_b       PD4(TIM2)       PC7(TIM8)
 pwm         PB0(TIM3)       PB4(TIM3)
 dir         PA4             PB5
 brk         PC1             PB3
+
+Note:
+The pins for encoder output need to be 5V tolerant, for 5V tolerant pins check: chapter 4,
+pinoutputs and pin description:
+
+https://www.st.com/resource/en/datasheet/stm32f303vc.pdf 
 /****************************************************************************************/
