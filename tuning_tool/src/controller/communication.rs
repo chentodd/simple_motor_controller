@@ -125,12 +125,19 @@ impl MotorDataActor {
     }
 
     async fn run_internal(&mut self) -> Result<(), ClientError<Infallible>> {
-        let mut sub = self
+        let mut motor_data_sub = self
             .client
             .client
             .subscribe_multi::<protocol::MotorProcessDataTopic>(8)
             .await
             .map_err(|_x| ClientError::Comms(HostErr::Closed))?;
+
+        // let mut mpu6050_data_sub = self
+        //     .client
+        //     .client
+        //     .subscribe_multi::<protocol::Mpu6050MotionDataTopic>(8)
+        //     .await
+        //     .map_err(|_x| ClientError::Comms(HostErr::Closed))?;
 
         // Check `ping` to make sure the device is connected
         let _id = self.client.ping(0).await?;
@@ -145,7 +152,7 @@ impl MotorDataActor {
                         break Ok(());
                     }
                 },
-                res = sub.recv() => {
+                res = motor_data_sub.recv() => {
                     match res {
                         Ok(data) => {
                             if data.0 == MotorId::Left {
@@ -172,6 +179,14 @@ impl MotorDataActor {
                         }
                     };
                 },
+                // res = mpu6050_data_sub.recv() => {
+                //     match res {
+                //         Ok(data) => {
+                //             debug!("{:?}", data);
+                //         },
+                //         _ => (),
+                //     }
+                // }
             }
         }
     }
