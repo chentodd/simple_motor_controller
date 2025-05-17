@@ -80,12 +80,12 @@ pub struct MotorProcessData {
 
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Default)]
 pub struct Mpu6050MotionData {
-    pub acc_x: i16,
-    pub acc_y: i16,
-    pub acc_z: i16,
-    pub g_x: i16,
-    pub g_y: i16,
-    pub g_z: i16,
+    pub acc_x: f32,
+    pub acc_y: f32,
+    pub acc_z: f32,
+    pub g_x: f32,
+    pub g_y: f32,
+    pub g_z: f32,
 }
 
 #[cfg(feature = "use-std")]
