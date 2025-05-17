@@ -1,8 +1,9 @@
 #![no_std]
 #![no_main]
 
-use defmt::{info, warn};
+use defmt::{error, info, warn};
 use embassy_executor::{InterruptExecutor, Spawner};
+use embassy_stm32::mode::Async;
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, ThreadModeRawMutex};
 use embassy_sync::pubsub::{PubSubChannel, Publisher};
 use embassy_sync::signal::Signal;
@@ -12,6 +13,7 @@ use embassy_usb::{Config, UsbDevice};
 
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
+use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{InterruptExt, Priority};
 use embassy_stm32::pac;
@@ -20,9 +22,10 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::{CountingMode, Timer as LLTimer};
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::usb;
-use postcard_rpc::server::WireTxErrorKind;
 
 use {defmt_rtt as _, panic_probe as _};
+
+use postcard_rpc::server::WireTxErrorKind;
 
 use postcard_rpc::{
     define_dispatch,
@@ -35,6 +38,13 @@ use postcard_rpc::{
         Dispatch, Sender, Server,
     },
 };
+
+use mpu6050_dmp::accel::AccelFullScale;
+use mpu6050_dmp::calibration::ReferenceGravity;
+use mpu6050_dmp::gyro::GyroFullScale;
+use mpu6050_dmp::{address::Address, sensor_async::Mpu6050};
+#[cfg(feature = "calibrate-mpu")]
+use mpu6050_dmp::calibration::CalibrationParameters;
 
 use static_cell::ConstStaticCell;
 
@@ -85,6 +95,12 @@ static RIGHT_MOTOR_CMD_CHANNEL: PubSubChannel<
 static LEFT_MOTOR_STATUS_WATCH: Watch<CriticalSectionRawMutex, MotorStatus, 2> = Watch::new();
 static RIGHT_MOTOR_STATUS_WATCH: Watch<CriticalSectionRawMutex, MotorStatus, 2> = Watch::new();
 
+// mpu6050
+const ACCEL_SCALE: AccelFullScale = AccelFullScale::G2;
+const GYRO_SCALE: GyroFullScale = GyroFullScale::Deg2000;
+const REF_GRAVITY: ReferenceGravity = ReferenceGravity::ZN;
+const MPU_6050_SAMPLE_PERIOD: f32 = 0.01;
+
 // postcard-rpc
 pub struct Context {
     pub left_motor_cmd_pub:
@@ -130,8 +146,13 @@ define_dispatch! {
     };
 }
 
-bind_interrupts!(struct Irqs {
+bind_interrupts!(struct UsbIrqs {
     USB_LP_CAN_RX0 => usb::InterruptHandler<peripherals::USB>;
+});
+
+bind_interrupts!(struct I2cIrqs {
+    I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
+    I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
 });
 
 #[interrupt]
@@ -260,6 +281,50 @@ pub async fn motor_data_publish_task(
         // It might not be a good idea to use 1ms delay here, but I'm using it to prevent
         // the task consumes all the resources and block USB task.
         Timer::after_millis(1).await;
+    }
+}
+
+#[embassy_executor::task]
+pub async fn mpu6050_data_publish_task(
+    app_sender: Sender<AppTx>,
+    mut mpu6050: Mpu6050<I2c<'static, Async>>,
+    delay_ms: u32,
+) {
+    let delay_ms = delay_ms as u64;
+    let mut mpu6050_topic_seq = 0_u8;
+    let mut mpu6050_motion_data = Mpu6050MotionData::default();
+
+    let _ref_gravity = REF_GRAVITY;
+    loop {
+        let (accel, gyro) = mpu6050.motion6().await.unwrap();
+        let accel = accel.scaled(ACCEL_SCALE);
+        let gyro = gyro.scaled(GYRO_SCALE);
+        mpu6050_motion_data.acc_x = accel.x();
+        mpu6050_motion_data.acc_y = accel.y();
+        mpu6050_motion_data.acc_z = accel.z();
+        mpu6050_motion_data.g_x = gyro.x();
+        mpu6050_motion_data.g_y = gyro.y();
+        mpu6050_motion_data.g_z = gyro.z();
+
+        info!(
+            "{}, {}, {}, {}, {}, {}",
+            mpu6050_motion_data.acc_x,
+            mpu6050_motion_data.acc_y,
+            mpu6050_motion_data.acc_z,
+            mpu6050_motion_data.g_x,
+            mpu6050_motion_data.g_y,
+            mpu6050_motion_data.g_z
+        );
+
+        if let Err(e) = app_sender
+            .publish::<Mpu6050MotionDataTopic>(mpu6050_topic_seq.into(), &mpu6050_motion_data)
+            .await
+        {
+            error!("Fail to publish mpu6050 data, error: {:?}", e as i32);
+        }
+
+        mpu6050_topic_seq = mpu6050_topic_seq.wrapping_add(1);
+        Timer::after_millis(delay_ms).await;
     }
 }
 
@@ -422,8 +487,25 @@ async fn main(spawner: Spawner) {
     low_level_timer.enable_update_interrupt(true);
     low_level_timer.start();
 
+    // Create I2C
+    // let mut i2c = i2c::I2c::new(
+    //     p.I2C2,
+    //     p.PA9,
+    //     p.PA10,
+    //     I2cIrqs,
+    //     p.DMA1_CH4,
+    //     p.DMA1_CH5,
+    //     Hertz(400_000),
+    //     Default::default(),
+    // );
+
+    // let mut buffer = [0_u8; 32];
+    // let result = i2c.read(0x75, &mut buffer).await;
+    // debug!("Read: {:?}", result);
+    // debug!("Data: {:?}", buffer);
+
     // USB/RPC init
-    let driver = usb::Driver::new(p.USB, Irqs, p.PA12, p.PA11);
+    let driver = usb::Driver::new(p.USB, UsbIrqs, p.PA12, p.PA11);
     let pbufs = PBUFS.take();
     let config = usb_config();
 
@@ -444,9 +526,33 @@ async fn main(spawner: Spawner) {
         dispatcher,
         vkk,
     );
+
+    // MPU6050 init
+    // let mut mpu6050 = Mpu6050::new(i2c, Address(0x69)).await.unwrap();
+
+    // let mut delay = embassy_time::Delay;
+    // mpu6050.initialize_dmp(&mut delay).await.unwrap();
+
+    // #[cfg(feature = "calibrate-mpu")]
+    // {
+    //     info!("Calibrating mpu");
+
+    //     let calibration_params = CalibrationParameters::new(ACCEL_SCALE, GYRO_SCALE, REF_GRAVITY);
+    //     mpu6050
+    //         .calibrate(&mut delay, &calibration_params)
+    //         .await
+    //         .unwrap();
+    // }
+
+
+    // let sample_rate = Hertz((1.0 / MPU_6050_SAMPLE_PERIOD) as u32); // 100Hz (1000Hz / (1 + 9))
+    // let divider = (1000 / sample_rate.0 - 1) as u8;
+    // mpu6050.set_sample_rate_divider(divider).await.unwrap();
+
+    // Spawn tasks
     spawner.must_spawn(usb_task(device));
 
-    // Spawn other tasks
+    // Trigger motion task with timer interrupt
     interrupt::TIM1_BRK_TIM15.set_priority(Priority::P6);
     let timer_spawner = EXECUTOR_TIMER.start(interrupt::TIM1_BRK_TIM15);
     timer_spawner
@@ -465,6 +571,12 @@ async fn main(spawner: Spawner) {
         LEFT_MOTOR_CMD_CHANNEL.publisher().unwrap(),
         RIGHT_MOTOR_CMD_CHANNEL.publisher().unwrap(),
     ));
+
+    // spawner.must_spawn(mpu6050_data_publish_task(
+    //     server.sender(),
+    //     mpu6050,
+    //     sample_rate.0,
+    // ));
 
     loop {
         let _ = server.run().await;

@@ -51,3 +51,4 @@ incremental = false
 default = []
 debug-motor = []
 debug-motion = []
+calibrate-mpu = []
