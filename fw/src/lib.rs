@@ -1,6 +1,9 @@
 #![no_std]
 
+pub mod communication;
 pub mod motion;
+pub mod task;
+
 use core::f32;
 
 pub fn rpm_to_rad_s(val: f32) -> f32 {
