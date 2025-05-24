@@ -14,6 +14,13 @@ use crate::motion::motor::*;
 use crate::{rad_s_to_rpm, rpm_to_rad_s};
 use s_curve::*;
 
+// The `CHANNEL_SIZE` is used in `PubSubChannel` and `MOTION_CMD_QUEUE_SIZE` is used
+// in motion struct. If the queue in motion struct is full, I want to make sure there
+// are spaces in `PubSubChannel`, so `Halt` command can be sent to motion struct.
+// And for the other commands, since they don't have the same priority as `Halt`, the
+// sender needs to wait until there are spaces in the queue.
+pub const MOTION_CMD_QUEUE_SIZE: usize = 32;
+
 #[derive(PartialEq)]
 enum HaltProcessState {
     Idle,
