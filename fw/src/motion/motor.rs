@@ -7,8 +7,8 @@ use embassy_stm32::timer::simple_pwm::SimplePwmChannel;
 use embassy_stm32::timer::GeneralInstance4Channel;
 use embassy_time::{block_for, Duration};
 
-use crate::encoder::Encoder;
-use crate::pid::Pid;
+use crate::motion::encoder::Encoder;
+use crate::motion::pid::Pid;
 
 pub struct BldcMotor24H<'a, T1: GeneralInstance4Channel, T2: GeneralInstance4Channel> {
     pub encoder: Encoder<'a, T1, 400>,

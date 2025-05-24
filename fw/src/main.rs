@@ -48,11 +48,10 @@ use mpu6050_dmp::calibration::CalibrationParameters;
 
 use static_cell::ConstStaticCell;
 
-use fw::encoder::Encoder;
-use fw::motion::Motion;
-use fw::motor::BldcMotor24H;
-use fw::pid::Pid;
-use fw::rpm_to_rad_s;
+use fw::{
+    motion::{encoder::Encoder, motion::Motion, motor::BldcMotor24H, pid::Pid},
+    rpm_to_rad_s,
+};
 use protocol::*;
 use s_curve::*;
 

@@ -10,7 +10,8 @@ use defmt::{debug, Debug2Format};
 use heapless::Deque;
 use protocol::{ControlMode, MotorCommand, MotorProcessData, PositionCommand};
 
-use crate::{motor::*, rad_s_to_rpm, rpm_to_rad_s};
+use crate::motion::motor::*;
+use crate::{rad_s_to_rpm, rpm_to_rad_s};
 use s_curve::*;
 
 #[derive(PartialEq)]
