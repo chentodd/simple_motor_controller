@@ -132,12 +132,12 @@ impl MotorDataActor {
             .await
             .map_err(|_x| ClientError::Comms(HostErr::Closed))?;
 
-        // let mut mpu6050_data_sub = self
-        //     .client
-        //     .client
-        //     .subscribe_multi::<protocol::Mpu6050MotionDataTopic>(8)
-        //     .await
-        //     .map_err(|_x| ClientError::Comms(HostErr::Closed))?;
+        let mut mpu6050_data_sub = self
+            .client
+            .client
+            .subscribe_multi::<protocol::Mpu6050MotionDataTopic>(8)
+            .await
+            .map_err(|_x| ClientError::Comms(HostErr::Closed))?;
 
         // Check `ping` to make sure the device is connected
         let _id = self.client.ping(0).await?;
@@ -179,14 +179,14 @@ impl MotorDataActor {
                         }
                     };
                 },
-                // res = mpu6050_data_sub.recv() => {
-                //     match res {
-                //         Ok(data) => {
-                //             debug!("{:?}", data);
-                //         },
-                //         _ => (),
-                //     }
-                // }
+                res = mpu6050_data_sub.recv() => {
+                    match res {
+                        Ok(_data) => {
+                            // debug!("{:?}", data);
+                        },
+                        _ => (),
+                    }
+                }
             }
         }
     }
