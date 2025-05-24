@@ -25,6 +25,14 @@ A small project that controls motor in velocity and position mode:
           - intp acc (unit: rad/s^2)
           - intp jerk (unit: rad/s^3)
 
+## Hardware
+
+The hardware used in the project is as follows:
+- motor: Nidec [24H brushless DC motors](https://www.nidec.com/en/product/search/category/B101/M102/S100/NCJ-24H-24-01/). 
+This motor has inbuilt driver that allows me to control the speed with 1 PWM signal
+- development board: stm32f303 discovery
+- sensor: MPU6050
+
 ## TODOS
 
 - [ ] Implement and test PID auto tuning
@@ -33,5 +41,5 @@ A small project that controls motor in velocity and position mode:
 
 ## Others
 
-I'm new to Rust embedded. If you find any issues, suggestions, improvements, please feel free to open a issue directly, thanks!!
-
+I'm new to Rust embedded development, and this project is intended to document my learnings and experiments with PID control and motion interpolation.
+If you find any issues, suggestions, improvements, please feel free to open a issue directly, thanks!!
