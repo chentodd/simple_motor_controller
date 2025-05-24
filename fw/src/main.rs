@@ -1,81 +1,51 @@
 #![no_std]
 #![no_main]
 
-use defmt::{error, info, warn};
 use embassy_executor::{InterruptExecutor, Spawner};
-use embassy_stm32::mode::Async;
-use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, ThreadModeRawMutex};
-use embassy_sync::pubsub::{PubSubChannel, Publisher};
-use embassy_sync::signal::Signal;
-use embassy_sync::watch::{Receiver, Sender as WatchSender, Watch};
-use embassy_time::Timer;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::pubsub::PubSubChannel;
+use embassy_sync::watch::Watch;
 use embassy_usb::{Config, UsbDevice};
 
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
-use embassy_stm32::i2c::{self, I2c};
+use embassy_stm32::i2c::{self};
 use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{InterruptExt, Priority};
 use embassy_stm32::pac;
-use embassy_stm32::peripherals::{self, TIM2, TIM3, TIM8, USB};
+use embassy_stm32::peripherals::{self, TIM2, TIM3, TIM8};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::{CountingMode, Timer as LLTimer};
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::usb;
 
+use defmt::info;
 use {defmt_rtt as _, panic_probe as _};
 
-use postcard_rpc::server::WireTxErrorKind;
-
-use postcard_rpc::{
-    define_dispatch,
-    header::VarHeader,
-    server::{
-        impls::embassy_usb_v0_4::{
-            dispatch_impl::{WireRxBuf, WireRxImpl, WireSpawnImpl, WireStorage, WireTxImpl},
-            PacketBuffers,
-        },
-        Dispatch, Sender, Server,
-    },
-};
-
-use mpu6050_dmp::accel::AccelFullScale;
-use mpu6050_dmp::calibration::ReferenceGravity;
-use mpu6050_dmp::gyro::GyroFullScale;
-use mpu6050_dmp::{address::Address, sensor_async::Mpu6050};
-#[cfg(feature = "calibrate-mpu")]
-use mpu6050_dmp::calibration::CalibrationParameters;
-
-use static_cell::ConstStaticCell;
+use postcard_rpc::server::{Dispatch, Server};
 
 use fw::{
-    motion::{encoder::Encoder, motion::Motion, motor::BldcMotor24H, pid::Pid},
+    communication::communication::*,
+    motion::{
+        encoder::Encoder,
+        motion::{Motion, MOTION_CMD_QUEUE_SIZE},
+        motor::BldcMotor24H,
+        pid::Pid,
+    },
     rpm_to_rad_s,
+    task::{
+        motion_controller::{motion_task, TIMER_SIGNAL},
+        motion_data_publisher::motor_data_publish_task,
+        mpu6050_data_publisher::mpu6050_data_publish_task,
+    },
 };
 use protocol::*;
 use s_curve::*;
-
-// control loop
-#[derive(Clone, Copy)]
-pub struct MotorStatus {
-    pub id: MotorId,
-    pub is_queue_full: bool,
-    pub process_data: MotorProcessData,
-}
 
 const PERIOD_S: f32 = 0.005;
 const PWM_HZ: u32 = 20_000;
 const VEL_LIMIT_RPM: f32 = 4000.0;
 
-// The `CHANNEL_SIZE` is used in `PubSubChannel` and `MOTION_CMD_QUEUE_SIZE` is used
-// in motion struct. If the queue in motion struct is full, I want to make sure there
-// are spaces in `PubSubChannel`, so `Halt` command can be sent to motion struct.
-// And for the other commands, since they don't have the same priority as `Halt`, the
-// sender needs to wait until there are spaces in the queue.
-const CHANNEL_SIZE: usize = 48;
-const MOTION_CMD_QUEUE_SIZE: usize = 32;
-
-static TIMER_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 static EXECUTOR_TIMER: InterruptExecutor = InterruptExecutor::new();
 static LEFT_MOTOR_CMD_CHANNEL: PubSubChannel<
     CriticalSectionRawMutex,
@@ -94,64 +64,13 @@ static RIGHT_MOTOR_CMD_CHANNEL: PubSubChannel<
 static LEFT_MOTOR_STATUS_WATCH: Watch<CriticalSectionRawMutex, MotorStatus, 2> = Watch::new();
 static RIGHT_MOTOR_STATUS_WATCH: Watch<CriticalSectionRawMutex, MotorStatus, 2> = Watch::new();
 
-// mpu6050
-const ACCEL_SCALE: AccelFullScale = AccelFullScale::G2;
-const GYRO_SCALE: GyroFullScale = GyroFullScale::Deg2000;
-const REF_GRAVITY: ReferenceGravity = ReferenceGravity::ZN;
-const MPU_6050_SAMPLE_PERIOD: f32 = 0.01;
-
-// postcard-rpc
-pub struct Context {
-    pub left_motor_cmd_pub:
-        Publisher<'static, CriticalSectionRawMutex, MotorCommand, CHANNEL_SIZE, 1, 2>,
-    pub right_motor_cmd_pub:
-        Publisher<'static, CriticalSectionRawMutex, MotorCommand, CHANNEL_SIZE, 1, 2>,
-    pub left_motor_status: Receiver<'static, CriticalSectionRawMutex, MotorStatus, 2>,
-    pub right_motor_status: Receiver<'static, CriticalSectionRawMutex, MotorStatus, 2>,
-}
-
-type AppDriver = usb::Driver<'static, USB>;
-type AppStorage = WireStorage<ThreadModeRawMutex, AppDriver, 256, 256, 64, 256>;
-type BufStorage = PacketBuffers<1024, 1024>;
-type AppTx = WireTxImpl<ThreadModeRawMutex, AppDriver>;
-type AppRx = WireRxImpl<AppDriver>;
-type AppServer = Server<AppTx, AppRx, WireRxBuf, MyApp>;
-
-static PBUFS: ConstStaticCell<BufStorage> = ConstStaticCell::new(BufStorage::new());
-static STORAGE: AppStorage = AppStorage::new();
-
-define_dispatch! {
-    app: MyApp;
-    spawn_fn: spawn_fn;
-    tx_impl: AppTx;
-    spawn_impl: WireSpawnImpl;
-    context: Context;
-
-    endpoints: {
-        list: ENDPOINT_LIST;
-
-        | EndpointTy                    | kind      | handler                       |
-        | ----------                    | ----      | -------                       |
-        | SetMotorCommandEndPoint       | async     | set_motor_cmd_handler         |
-    };
-    topics_in: {
-        list: TOPICS_IN_LIST;
-
-        | TopicTy                       | kind      | handler                       |
-        | ----------                    | ----      | -------                       |
-    };
-    topics_out: {
-        list: TOPICS_OUT_LIST;
-    };
-}
-
 bind_interrupts!(struct UsbIrqs {
     USB_LP_CAN_RX0 => usb::InterruptHandler<peripherals::USB>;
 });
 
 bind_interrupts!(struct I2cIrqs {
-    I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
-    I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
+    I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
+    I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
 });
 
 #[interrupt]
@@ -165,210 +84,10 @@ unsafe fn TIM1_BRK_TIM15() {
 }
 
 #[embassy_executor::task]
-async fn motion_task(
-    mut left_motion_controller: Motion<
-        'static,
-        CriticalSectionRawMutex,
-        TIM2,
-        TIM3,
-        CHANNEL_SIZE,
-        MOTION_CMD_QUEUE_SIZE,
-    >,
-    mut right_motion_controller: Motion<
-        'static,
-        CriticalSectionRawMutex,
-        TIM8,
-        TIM3,
-        CHANNEL_SIZE,
-        MOTION_CMD_QUEUE_SIZE,
-    >,
-    left_motor_status: WatchSender<'static, CriticalSectionRawMutex, MotorStatus, 2>,
-    right_motor_status: WatchSender<'static, CriticalSectionRawMutex, MotorStatus, 2>,
-) {
-    loop {
-        TIMER_SIGNAL.wait().await;
-
-        left_motion_controller.read_cmd_from_queue();
-        right_motion_controller.read_cmd_from_queue();
-
-        left_motion_controller.run();
-        right_motion_controller.run();
-
-        left_motor_status.send(MotorStatus {
-            id: MotorId::Left,
-            is_queue_full: left_motion_controller.is_queue_full(),
-            process_data: left_motion_controller.get_motor_process_data(),
-        });
-
-        right_motor_status.send(MotorStatus {
-            id: MotorId::Right,
-            is_queue_full: right_motion_controller.is_queue_full(),
-            process_data: right_motion_controller.get_motor_process_data(),
-        });
-    }
-}
-
-#[embassy_executor::task]
 pub async fn usb_task(mut usb: UsbDevice<'static, AppDriver>) {
     // low level USB management
     info!("USB task started");
     usb.run().await;
-}
-
-#[embassy_executor::task]
-pub async fn motor_data_publish_task(
-    mut left_motor_status: Receiver<'static, CriticalSectionRawMutex, MotorStatus, 2>,
-    mut right_motor_status: Receiver<'static, CriticalSectionRawMutex, MotorStatus, 2>,
-    app_sender: Sender<AppTx>,
-    left_command_pub: Publisher<'static, CriticalSectionRawMutex, MotorCommand, CHANNEL_SIZE, 1, 2>,
-    right_command_pub: Publisher<
-        'static,
-        CriticalSectionRawMutex,
-        MotorCommand,
-        CHANNEL_SIZE,
-        1,
-        2,
-    >,
-) {
-    let mut left_motor_topic_seq = 0_u8;
-    let mut right_motor_topic_seq = 0_u8;
-    let mut connected = false;
-
-    loop {
-        let left_motor_status = left_motor_status.get().await;
-        let right_motor_status = right_motor_status.get().await;
-
-        // Here, I use the error to check if connection is broken. If the board
-        // is previously connected, and `Timeout` error is triggered when
-        // publishing the data, then the connection is treated as broken. In
-        // this case, I will send a `Halt` command to motion struct to stop
-        // motor.
-        // Also, because we publish the data on the same communication bus, so
-        // I only check the error when publishing left motor topic data.
-        if let Err(e) = app_sender
-            .publish::<MotorProcessDataTopic>(
-                left_motor_topic_seq.into(),
-                &(left_motor_status.id, left_motor_status.process_data),
-            )
-            .await
-        {
-            match e {
-                WireTxErrorKind::Timeout => {
-                    if connected {
-                        connected = false;
-                        let _ = left_command_pub.try_publish(MotorCommand::Halt);
-                        let _ = right_command_pub.try_publish(MotorCommand::Halt);
-                        warn!("connection is lost, halt motors");
-                    }
-                }
-                _ => (),
-            }
-        } else {
-            connected = true;
-        }
-
-        let _ = app_sender
-            .publish::<MotorProcessDataTopic>(
-                right_motor_topic_seq.into(),
-                &(right_motor_status.id, right_motor_status.process_data),
-            )
-            .await;
-
-        left_motor_topic_seq = left_motor_topic_seq.wrapping_add(1);
-        right_motor_topic_seq = right_motor_topic_seq.wrapping_add(1);
-
-        // It might not be a good idea to use 1ms delay here, but I'm using it to prevent
-        // the task consumes all the resources and block USB task.
-        Timer::after_millis(1).await;
-    }
-}
-
-#[embassy_executor::task]
-pub async fn mpu6050_data_publish_task(
-    app_sender: Sender<AppTx>,
-    mut mpu6050: Mpu6050<I2c<'static, Async>>,
-    delay_ms: u32,
-) {
-    let delay_ms = delay_ms as u64;
-    let mut mpu6050_topic_seq = 0_u8;
-    let mut mpu6050_motion_data = Mpu6050MotionData::default();
-
-    let _ref_gravity = REF_GRAVITY;
-    loop {
-        let (accel, gyro) = mpu6050.motion6().await.unwrap();
-        let accel = accel.scaled(ACCEL_SCALE);
-        let gyro = gyro.scaled(GYRO_SCALE);
-        mpu6050_motion_data.acc_x = accel.x();
-        mpu6050_motion_data.acc_y = accel.y();
-        mpu6050_motion_data.acc_z = accel.z();
-        mpu6050_motion_data.g_x = gyro.x();
-        mpu6050_motion_data.g_y = gyro.y();
-        mpu6050_motion_data.g_z = gyro.z();
-
-        info!(
-            "{}, {}, {}, {}, {}, {}",
-            mpu6050_motion_data.acc_x,
-            mpu6050_motion_data.acc_y,
-            mpu6050_motion_data.acc_z,
-            mpu6050_motion_data.g_x,
-            mpu6050_motion_data.g_y,
-            mpu6050_motion_data.g_z
-        );
-
-        if let Err(e) = app_sender
-            .publish::<Mpu6050MotionDataTopic>(mpu6050_topic_seq.into(), &mpu6050_motion_data)
-            .await
-        {
-            error!("Fail to publish mpu6050 data, error: {:?}", e as i32);
-        }
-
-        mpu6050_topic_seq = mpu6050_topic_seq.wrapping_add(1);
-        Timer::after_millis(delay_ms).await;
-    }
-}
-
-async fn set_motor_cmd_handler(
-    context: &mut Context,
-    _header: VarHeader,
-    rqst: (MotorId, MotorCommand),
-) -> CommandSetResult {
-    // Indicates the internal buffer in motion controller is full or not, need to check
-    // this flag before sending commands to motion controller task
-    //
-    // There are 2 queues in target board:
-    // 1. PubSubChannel, publish command to motion controller task
-    // 2. Deque, queue used as a backup in motion controller
-    //
-    // If the Deque in motion controller is full then, this flag will be set to true then
-    // the handler will return error.
-    // (This could happen if a batch of position commands are pushed to the Deque, and
-    // motion controller is still processing it).
-    //
-    // If the Deque in motion controller is not full but commands are published too fast
-    // and all the spaces in PubSubChannel is consumed, then the handler will return error.
-
-    let (queue_status, channel_pub) = match rqst.0 {
-        MotorId::Left => (&mut context.left_motor_status, &context.left_motor_cmd_pub),
-        MotorId::Right => (
-            &mut context.right_motor_status,
-            &context.right_motor_cmd_pub,
-        ),
-    };
-
-    // The `Halt` command has the highest priority, so it can be sent when the queue in motion
-    // struct is full.
-    let can_push = match rqst.1 {
-        MotorCommand::VelocityCommand(_) | MotorCommand::Halt => true,
-        MotorCommand::PositionCommand(_) => !queue_status.changed().await.is_queue_full,
-    };
-
-    if can_push {
-        channel_pub
-            .try_publish(rqst.1)
-            .map_err(|_e| CommandError::BufferFull(rqst.0))
-    } else {
-        Err(CommandError::BufferFull(rqst.0))
-    }
 }
 
 fn usb_config() -> Config<'static> {
@@ -487,21 +206,16 @@ async fn main(spawner: Spawner) {
     low_level_timer.start();
 
     // Create I2C
-    // let mut i2c = i2c::I2c::new(
-    //     p.I2C2,
-    //     p.PA9,
-    //     p.PA10,
-    //     I2cIrqs,
-    //     p.DMA1_CH4,
-    //     p.DMA1_CH5,
-    //     Hertz(400_000),
-    //     Default::default(),
-    // );
-
-    // let mut buffer = [0_u8; 32];
-    // let result = i2c.read(0x75, &mut buffer).await;
-    // debug!("Read: {:?}", result);
-    // debug!("Data: {:?}", buffer);
+    let i2c = i2c::I2c::new(
+        p.I2C1,
+        p.PB6,
+        p.PB7,
+        I2cIrqs,
+        p.DMA1_CH6,
+        p.DMA1_CH7,
+        Hertz(400_000),
+        Default::default(),
+    );
 
     // USB/RPC init
     let driver = usb::Driver::new(p.USB, UsbIrqs, p.PA12, p.PA11);
@@ -526,28 +240,6 @@ async fn main(spawner: Spawner) {
         vkk,
     );
 
-    // MPU6050 init
-    // let mut mpu6050 = Mpu6050::new(i2c, Address(0x69)).await.unwrap();
-
-    // let mut delay = embassy_time::Delay;
-    // mpu6050.initialize_dmp(&mut delay).await.unwrap();
-
-    // #[cfg(feature = "calibrate-mpu")]
-    // {
-    //     info!("Calibrating mpu");
-
-    //     let calibration_params = CalibrationParameters::new(ACCEL_SCALE, GYRO_SCALE, REF_GRAVITY);
-    //     mpu6050
-    //         .calibrate(&mut delay, &calibration_params)
-    //         .await
-    //         .unwrap();
-    // }
-
-
-    // let sample_rate = Hertz((1.0 / MPU_6050_SAMPLE_PERIOD) as u32); // 100Hz (1000Hz / (1 + 9))
-    // let divider = (1000 / sample_rate.0 - 1) as u8;
-    // mpu6050.set_sample_rate_divider(divider).await.unwrap();
-
     // Spawn tasks
     spawner.must_spawn(usb_task(device));
 
@@ -571,14 +263,9 @@ async fn main(spawner: Spawner) {
         RIGHT_MOTOR_CMD_CHANNEL.publisher().unwrap(),
     ));
 
-    // spawner.must_spawn(mpu6050_data_publish_task(
-    //     server.sender(),
-    //     mpu6050,
-    //     sample_rate.0,
-    // ));
+    spawner.must_spawn(mpu6050_data_publish_task(server.sender(), i2c));
 
     loop {
         let _ = server.run().await;
-        Timer::after_millis(1).await;
     }
 }
