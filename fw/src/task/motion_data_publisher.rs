@@ -42,7 +42,10 @@ pub async fn motor_data_publish_task(
         if let Err(e) = app_sender
             .publish::<MotorProcessDataTopic>(
                 left_motor_topic_seq.into(),
-                &(left_motor_status.id, left_motor_status.process_data),
+                &[
+                    (left_motor_status.id, left_motor_status.process_data),
+                    (right_motor_status.id, right_motor_status.process_data),
+                ],
             )
             .await
         {
@@ -60,13 +63,6 @@ pub async fn motor_data_publish_task(
         } else {
             connected = true;
         }
-
-        let _ = app_sender
-            .publish::<MotorProcessDataTopic>(
-                right_motor_topic_seq.into(),
-                &(right_motor_status.id, right_motor_status.process_data),
-            )
-            .await;
 
         left_motor_topic_seq = left_motor_topic_seq.wrapping_add(1);
         right_motor_topic_seq = right_motor_topic_seq.wrapping_add(1);

@@ -154,8 +154,8 @@ impl MotorDataActor {
                 res = motor_data_sub.recv() => {
                     match res {
                         Ok(data) => {
-                            if data.0 == MotorId::Left {
-                                if let Err(e) = self.data_send.send(data.1) {
+                            if data[0].0 == MotorId::Left {
+                                if let Err(e) = self.data_send.send(data[0].1) {
                                     error!("process_motor_data(), failed to send data: {e}");
                                     // I borrow the error type from HostError (it might be a bad idea, and this can be
                                     // impproved). When this error is triggered, it means when receiver is dropped

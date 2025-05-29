@@ -28,10 +28,10 @@ topics! {
     list = TOPICS_OUT_LIST;
     direction = TopicDirection::ToClient;
     omit_std = true;
-    | TopicTy                     | MessageTy                     | Path            | Cfg                |
-    | ----------                  | ----------                    | ----------      | ----------         |
-    | MotorProcessDataTopic       | (MotorId, MotorProcessData)   | "motor/data"    |                    |
-    | Mpu6050MotionDataTopic      | Mpu6050MotionData             | "mpu6050/data"  |                    |
+    | TopicTy                     | MessageTy                           | Path            | Cfg                |
+    | ----------                  | ----------                          | ----------      | ----------         |
+    | MotorProcessDataTopic       | [(MotorId, MotorProcessData); 2]    | "motor/data"    |                    |
+    | Mpu6050MotionDataTopic      | Mpu6050MotionData                   | "mpu6050/data"  |                    |
 }
 
 
