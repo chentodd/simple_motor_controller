@@ -9,9 +9,10 @@ pub type CommandSetResult = Result<(), CommandError>;
 endpoints! {
     list = ENDPOINT_LIST;
     omit_std = true;
-    | EndpointTy                  | RequestTy                     | ResponseTy          | Path               |
-    | ----------                  | ----------                    | ----------          | ----------         |
-    | SetMotorCommandEndPoint     | (MotorId, MotorCommand)       | CommandSetResult    | "motor_cmd/set"    |
+    | EndpointTy                  | RequestTy                     | ResponseTy              | Path               |
+    | ----------                  | ----------                    | ----------              | ----------         |
+    | SetMotorCommandEndPoint     | (MotorId, MotorCommand)       | CommandSetResult        | "motor_cmd/set"    |
+    | SetMotorCommandsEndPoint    | [(MotorId, MotorCommand); 2]  | CommandSetResult        | "motor_cmds/set"   |
 }
 
 topics! {
@@ -44,7 +45,8 @@ pub enum ControlMode {
 
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
 pub enum CommandError {
-    BufferFull(MotorId),
+    // The motor id is set as bits
+    BufferFull(u8),
 }
 
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Clone, Copy, Default)]
@@ -55,9 +57,10 @@ pub struct PositionCommand {
 }
 
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Clone, Copy)]
+#[repr(u8)]
 pub enum MotorId {
-    Left,
-    Right,
+    Left = 1,
+    Right = 2,
 }
 
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Clone, Copy)]

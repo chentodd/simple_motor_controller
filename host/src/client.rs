@@ -71,4 +71,14 @@ impl Client {
             .await?
             .flatten()
     }
+
+    pub async fn set_motor_cmds(
+        &self,
+        cmds: [(MotorId, MotorCommand); 2],
+    ) -> Result<(), ClientError<CommandError>> {
+        self.client
+            .send_resp::<SetMotorCommandsEndPoint>(&cmds)
+            .await?
+            .flatten()
+    }
 }

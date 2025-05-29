@@ -34,14 +34,7 @@ impl MotorCommandActor {
 
     async fn run_internal(&mut self) -> Result<(), ClientError<CommandError>> {
         // This queue is used to store the command from `command_queue`, and it will
-        // be used when sending position commands. Ex: The embedded board has 8 buffer
-        // limit, but user wants to send 10 position commands:
-        // 1. First 8 commands are sent
-        // 2. `buffer_full` is set to true, need to wait embedded board to process commands
-        // 3. 9th and 10th commands get stored in internal queue when `buffer_full` is true
-        // 4. When `buffer_full` is false, the command in the internal queue will be sent to
-        //    the board
-
+        // be used when sending position commands.
         let mut internal_command_cache = VecDeque::<MotorCommand>::new();
 
         let _id = self
@@ -96,6 +89,12 @@ impl MotorCommandActor {
                                     error!("process_motor_command(), unexpected error: {e:?}");
                                     break Err(ClientError::Comms(e));
                                 },
+                                // Currently, the other error is CommandError::BufferFull which will be raised
+                                // when the position command queue in the target board is full. Here, the error
+                                // is ignored, so it stays in `internal_command_cache` and the async block will
+                                // try to re-send it. (Improvement? create a data field called `buffer_full`,
+                                // wait until it is set to false and re-send the command after that to prevent 
+                                // repeatedly sending the same command)
                                 _ => (),
                             },
                         }

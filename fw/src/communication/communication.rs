@@ -32,6 +32,7 @@ define_dispatch! {
         | EndpointTy                    | kind      | handler                       |
         | ----------                    | ----      | -------                       |
         | SetMotorCommandEndPoint       | async     | set_motor_cmd_handler         |
+        | SetMotorCommandsEndPoint      | async     | set_motor_cmds_handler        |
     };
     topics_in: {
         list: TOPICS_IN_LIST;
@@ -72,11 +73,7 @@ pub struct Context {
     pub right_motor_status: Receiver<'static, CriticalSectionRawMutex, MotorStatus, 2>,
 }
 
-async fn set_motor_cmd_handler(
-    context: &mut Context,
-    _header: VarHeader,
-    rqst: (MotorId, MotorCommand),
-) -> CommandSetResult {
+async fn set_motor_cmd_helper(context: &mut Context, id: MotorId, cmd: MotorCommand) -> CommandSetResult {
     // Indicates the internal buffer in motion controller is full or not, need to check
     // this flag before sending commands to motion controller task
     //
@@ -84,15 +81,15 @@ async fn set_motor_cmd_handler(
     // 1. PubSubChannel, publish command to motion controller task
     // 2. Deque, queue used as a backup in motion controller
     //
-    // If the Deque in motion controller is full then, this flag will be set to true then
-    // the handler will return error.
-    // (This could happen if a batch of position commands are pushed to the Deque, and
-    // motion controller is still processing it).
+    // The `can_push` will be set to false when
+    // 1. The Deque in motion controller is full
+    // 2. The PubSubChannel is full
+    // In these cases, the handler will return `CommandError::BufferFull`.
     //
-    // If the Deque in motion controller is not full but commands are published too fast
-    // and all the spaces in PubSubChannel is consumed, then the handler will return error.
-
-    let (queue_status, channel_pub) = match rqst.0 {
+    // Currently, the size of PubSubChannel is more than Deque, so if user pushes too
+    // many position commands, the Dequeu will be full first, and the further commands
+    // will not be pushed to PubSubChannel
+    let (queue_status, channel_pub) = match id {
         MotorId::Left => (&mut context.left_motor_status, &context.left_motor_cmd_pub),
         MotorId::Right => (
             &mut context.right_motor_status,
@@ -102,16 +99,45 @@ async fn set_motor_cmd_handler(
 
     // The `Halt` command has the highest priority, so it can be sent when the queue in motion
     // struct is full.
-    let can_push = match rqst.1 {
+    let can_push = match cmd {
         MotorCommand::VelocityCommand(_) | MotorCommand::Halt => true,
         MotorCommand::PositionCommand(_) => !queue_status.changed().await.is_queue_full,
     };
 
     if can_push {
         channel_pub
-            .try_publish(rqst.1)
-            .map_err(|_e| CommandError::BufferFull(rqst.0))
+            .try_publish(cmd)
+            .map_err(|_e| CommandError::BufferFull(id as u8))
     } else {
-        Err(CommandError::BufferFull(rqst.0))
+        Err(CommandError::BufferFull(id as u8))
+    }
+}
+
+async fn set_motor_cmd_handler(
+    context: &mut Context,
+    _header: VarHeader,
+    rqst: (MotorId, MotorCommand),
+) -> CommandSetResult {
+    set_motor_cmd_helper(context, rqst.0, rqst.1).await
+}
+
+async fn set_motor_cmds_handler(
+    context: &mut Context,
+    _header: VarHeader,
+    rqst: [(MotorId, MotorCommand); 2],
+) -> CommandSetResult {
+    let mut err_motor_id = 0_u8;
+    for (id, cmd) in rqst {
+        if let Err(e) = set_motor_cmd_helper(context, id, cmd).await {
+            match e {
+                CommandError::BufferFull(id) => err_motor_id |= id,
+            }
+        }
+    }
+
+    if err_motor_id == 0 {
+        Ok(())
+    } else {
+        Err(CommandError::BufferFull(err_motor_id))
     }
 }
