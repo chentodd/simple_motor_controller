@@ -498,3 +498,17 @@ impl SCurveInterpolator {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_set_target_should_skip_on_zero_displacement_without_dec_right_away() {
+        let mut scurve = SCurveInterpolator::new(1.0, 1.0, 1.0, 0.01);
+
+        scurve.set_target(0.0, 0.0, 0.0, 0.0, 1.0);
+
+        assert_eq!(scurve.get_intp_status(), InterpolationStatus::Done);
+    }
+}
