@@ -167,17 +167,17 @@ impl SCurveInterpolator {
         //        * q_end: -10
         //        * vel_start: 0
         //        * vel_end: -2
-        // 
+        //
         //      This settings will be processed as positive segment:
         //        * q_start: 0
         //        * q_end: 10
         //        * vel_start: 0
         //        * vel_end: 2
-        //      with a negative direction settings (-1.0). The direction settings will be used to flip the 
+        //      with a negative direction settings (-1.0). The direction settings will be used to flip the
         //      interpolated value during the output stage.
-        //      
+        //
         //      After test input A is finished, the intp vel is 2, and this value need to be fliped to prevent
-        //      velocity jump errors. 
+        //      velocity jump errors.
         //
         //      a. New input that moves axis in negative direction:
         //         vel_start = -2 (flipped)
@@ -190,7 +190,7 @@ impl SCurveInterpolator {
         //         target_data.vel = 1 * vel_start = -2 (no flipped)
         //         output vel = 1 * intp vel = 1 * (-2) (no flipped)
         //         => The first output vel is consistent with previous end vel (-2)
-        // 
+        //
         // 2. If previous direction is positive, the sign of previous intp vel is not flipped.
         //    Example:
         //      Test input A:
@@ -212,7 +212,7 @@ impl SCurveInterpolator {
         //       target_data.vel = 1 * vel_start = 2 (no flipped)
         //       output vel = 1 * intp vel = 2 (no flipped)
         //       => The first output vel is consistent with previous end vel (2)
-        // 
+        //
         let mut vel_start = vel_start;
         if self.intp_data.vel != 0.0 {
             if dir_prev < 0.0 {
@@ -224,7 +224,7 @@ impl SCurveInterpolator {
 
         // Override intp pos end if the direction is revered
         // The decision is similar as above comments, here is the example that explain the decision
-        // 
+        //
         // a. Previous: axis moves in negative direction, Current: axis moves in negative direction
         //    * Previous pos_end is negative
         //    * Current direction is negative, flip previous pos_end, it becomes positive
@@ -256,7 +256,7 @@ impl SCurveInterpolator {
 
         // Special case, update intp dist according to intp status.
         //
-        // 1. If previous intp is finished, the intp dist is set to 0, this makes sure intp can generate correct 
+        // 1. If previous intp is finished, the intp dist is set to 0, this makes sure intp can generate correct
         //    distance when running new segment. (combined with `pos_end`, we can get expected position value)
         // 2. If previous intp is not finished, the intp dist is not set to 0. Currently, this is caused by stopping
         //    the interplation in the middle by calling `stop`. Because we need to make sure axis is stopping from
@@ -304,7 +304,7 @@ impl SCurveInterpolator {
         //    * Stop generating acc/vel data
         //    * Run deceleration segment right away
         //
-        // 2. Use `set_target` to force deceleration 
+        // 2. Use `set_target` to force deceleration
         //    * Special displacement: 0.0
         //      In general case, 0 displacement will be rejected, but it is allowed when running `Stop`. The 0
         //      displacement makes sure deceleration distance is larger(or equal) to remaing distance which forces
