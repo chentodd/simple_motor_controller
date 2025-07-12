@@ -111,7 +111,7 @@ impl<
         if let Some(&cmd) = self.cmd_queue.front() {
             let mut ready_to_set = match cmd {
                 MotorCommand::VelocityCommand(_) | MotorCommand::Halt => true,
-                MotorCommand::PositionCommand(_) => self.ready(),
+                MotorCommand::PositionCommand(_) | MotorCommand::AutoTuneCommand(_) => self.ready(),
             };
 
             if self.halt_process_state != HaltProcessState::Idle {
@@ -126,6 +126,7 @@ impl<
                         match self.control_mode {
                             ControlMode::Position => self.s_curve_intper.stop(),
                             ControlMode::Velocity => self.motor.set_target_velocity(0.0),
+                            ControlMode::Pid => self.motor.pid.cancel_autotune(),
                             _ => (),
                         }
                     }
@@ -136,6 +137,18 @@ impl<
                     MotorCommand::VelocityCommand(x) => {
                         self.control_mode = ControlMode::Velocity;
                         self.motor.set_target_velocity(x);
+                    }
+                    MotorCommand::AutoTuneCommand(x) => {
+                        self.control_mode = ControlMode::Pid;
+                        if !x.start {
+                            self.motor.set_target_velocity(0.0);
+                            self.motor.pid.cancel_autotune();
+                        } else {
+                            self.motor.set_target_velocity(x.set_point);
+                            self.motor
+                                .pid
+                                .start_autotune(x.output_limit, -x.output_limit);
+                        }
                     }
                 }
 
@@ -224,6 +237,7 @@ impl<
                 self.motor.pid.get_error().abs() <= 60.0
             }
             ControlMode::StandStill => true,
+            ControlMode::Pid => !self.motor.pid.is_autotune_running(),
         };
 
         is_ready
