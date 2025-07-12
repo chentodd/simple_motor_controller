@@ -41,6 +41,7 @@ pub enum ControlMode {
     #[default]
     Velocity,
     StandStill,
+    Pid,
 }
 
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq)]
@@ -56,6 +57,13 @@ pub struct PositionCommand {
     pub vel_end: f32,
 }
 
+#[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Clone, Copy, Default)]
+pub struct AutoTuneCommand {
+    pub set_point: f32,
+    pub output_limit: f32,
+    pub start: bool,
+}
+
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Clone, Copy)]
 #[repr(u8)]
 pub enum MotorId {
@@ -67,7 +75,8 @@ pub enum MotorId {
 pub enum MotorCommand {
     Halt,
     VelocityCommand(f32),
-    PositionCommand(PositionCommand)
+    PositionCommand(PositionCommand),
+    AutoTuneCommand(AutoTuneCommand),
 }
 
 #[derive(Serialize, Deserialize, Schema, Debug, PartialEq, Clone, Copy, Default)]
@@ -102,6 +111,7 @@ mod display_impl {
                 ControlMode::Position => write!(f, "Position"),
                 ControlMode::Velocity => write!(f, "Velocity"),
                 ControlMode::StandStill => write!(f, "StandStill"),
+                ControlMode::Pid => write!(f, "Pid"),
             }
         }
     }
