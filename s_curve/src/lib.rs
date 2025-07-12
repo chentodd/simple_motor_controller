@@ -317,7 +317,7 @@ impl SCurveInterpolator {
         self.intp_data.dec_right_away = true;
         self.set_target(
             0.0,
-            0.0,
+            self.target_data.dir,
             self.intp_data.vel * self.target_data.dir,
             0.0,
             self.motion_constraint.vel_limit,
@@ -502,13 +502,84 @@ impl SCurveInterpolator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    const T: f32 = 0.001;
 
     #[test]
     fn test_set_target_should_skip_on_zero_displacement_without_dec_right_away() {
-        let mut scurve = SCurveInterpolator::new(1.0, 1.0, 1.0, 0.01);
+        let mut scurve = SCurveInterpolator::new(1.0, 1.0, 1.0, T);
 
         scurve.set_target(0.0, 0.0, 0.0, 0.0, 1.0);
 
         assert_eq!(scurve.get_intp_status(), InterpolationStatus::Done);
+    }
+
+    #[test]
+    fn test_stop_in_the_middle_in_positive_and_negative_direction_to_make_sure_both_have_consistent_intp_cycles() {
+        let vel_limit = 10.0;
+        let acc_limit = 10.0;
+        let jerk_limit = 30.0;
+        
+        // displacement, end velocity
+        // The end velocity should be large enough to perform full acceleration profile
+        let targets: Vec<(f32, f32)> = vec![
+            (20.0, 4.0),
+            (20.0, 5.0),
+            (20.0, 4.0),
+            (20.0, 0.0),
+        ];
+
+        // stop index should be greater than 0
+        let stop_index = targets.len() / 2;
+        let mut intp_vel = vec![];
+        for dir in [1.0_f32, -1.0] {
+            let mut scurve = SCurveInterpolator::new(vel_limit, acc_limit, jerk_limit, T);
+            let mut vel_start = 0.0_f32;
+
+            intp_vel.push(vec![]);
+            for i in 0..targets.len() {
+                let target = targets[i];
+                scurve.set_target(0.0, dir * target.0, vel_start, dir * target.1, 5.0);
+                vel_start = target.1;
+
+                if i == stop_index {
+                    scurve.stop();
+                }
+
+                while scurve.get_intp_status() != InterpolationStatus::Done {
+                    scurve.interpolate();
+                    
+                    let intp_data = scurve.get_intp_data();
+                    intp_vel.last_mut().unwrap().push(intp_data.vel);
+                }
+
+                if i == stop_index {
+                    break;
+                }
+            }
+        }
+
+        let acc_ramp_up_time = acc_limit / jerk_limit;
+        let acc_const_time = targets[stop_index - 1].1  / acc_limit - acc_ramp_up_time;
+        let acc_all_time = acc_ramp_up_time * 2.0 + acc_const_time;
+        let acc_all_steps = (acc_all_time / T) as usize;
+
+        let length_check = intp_vel[0].len() == intp_vel[1].len();
+        let mut vel_check = true;
+        for i in 0..intp_vel.len() {
+            let vel_data = &intp_vel[i];
+            let dir = if i == 0 { 1.0 } else { -1.0 };
+
+            if vel_data.len() < acc_all_steps {
+                vel_check = false;
+                break;
+            }
+
+            // We "stop" at stop_index, so the velocity should be close to the end velocity of "stop_index - 1"
+            let vel = vel_data[vel_data.len() - acc_all_steps];
+            vel_check &= (vel - dir * targets[stop_index - 1].1).abs() <= acc_limit * T;
+        }
+
+        assert_eq!(length_check, true);
+        assert_eq!(vel_check, true);
     }
 }
