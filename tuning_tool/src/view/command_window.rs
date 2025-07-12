@@ -1,7 +1,7 @@
 use eframe::egui::{Button, ScrollArea, Slider, TextEdit, Ui};
 
 use crate::{DEFAULT_CONTROL_MODE, UiView, ViewEvent, ViewRequest};
-use protocol::ControlMode;
+use protocol::{AutoTuneCommand, ControlMode};
 
 #[derive(Default)]
 pub(super) struct CommandWindow {
@@ -18,6 +18,8 @@ pub(super) struct CommandWindow {
     // 3. vel_end: rpm, the end velocity of position command block, it is optional.
     //    If it is not given, the end velocity will be treated as 0
     pos_cmd: String,
+    // auto tune command
+    auto_tune_cmd: AutoTuneCommand,
 }
 
 impl CommandWindow {
@@ -52,6 +54,29 @@ impl CommandWindow {
             self.request = Some(ViewRequest::VelocityControl(self.curr_vel_cmd));
         }
     }
+
+    fn display_autotune_command_panel(&mut self, ui: &mut Ui) {
+        ui.columns(2, |columns| {
+            columns[0].add(
+                Slider::new(&mut self.auto_tune_cmd.set_point, -3000.0..=3000.0)
+                    .text("set point velocity (rpm)"),
+            );
+            columns[1].add(
+                Slider::new(&mut self.auto_tune_cmd.output_limit, 0.0..=0.75).text("output limit"),
+            );
+        });
+
+        let text = if !self.auto_tune_cmd.start {
+            "start"
+        } else {
+            "stop"
+        };
+        let button = Button::new(text);
+        if ui.add(button).clicked() {
+            self.auto_tune_cmd.start = !self.auto_tune_cmd.start;
+            self.request = Some(ViewRequest::AutoTuneControl(self.auto_tune_cmd.clone()));
+        }
+    }
 }
 
 impl UiView for CommandWindow {
@@ -60,6 +85,7 @@ impl UiView for CommandWindow {
         match self.curr_control_mode {
             ControlMode::Position => self.display_position_command_panel(ui),
             ControlMode::Velocity => self.display_velocity_command_panel(ui),
+            ControlMode::Pid => self.display_autotune_command_panel(ui),
             _ => (),
         }
     }
@@ -79,6 +105,20 @@ impl UiView for CommandWindow {
                     self.curr_control_mode = mode;
                 }
             }
+            ViewEvent::ProfileDataUpdate(data) => {
+                // Turn off auto tune command when the motor is not moving.
+                // The target board runs motion task every 5ms, and 30 rpm is the minimum speed
+                // that can be detected by the encoder and this cycle time. The calculation is
+                // as follows:
+                // the 24H BLDC motor generates 400 pulses per rev, so:
+                // 30 rpm = 0.5 rev/s
+                // 0.5 rev/s * 400 pulses/rev = 200 pulses/s
+                // 200 pulses/s / 200 Hz = 1 pulse per cycle
+                // Here, I slightly increase the threshold to 40 rpm to prevent unstable behavior
+                if self.auto_tune_cmd.start && data.act_vel.abs() <= 40.0 {
+                    self.auto_tune_cmd.start = false;
+                }
+            }
             _ => (),
         }
     }
@@ -88,5 +128,6 @@ impl UiView for CommandWindow {
         self.curr_vel_cmd = 0.0;
         self.prev_vel_cmd = 0.0;
         self.pos_cmd.clear();
+        self.auto_tune_cmd.start = false;
     }
 }

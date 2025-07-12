@@ -93,7 +93,7 @@ impl MotorCommandActor {
                                 // when the position command queue in the target board is full. Here, the error
                                 // is ignored, so it stays in `internal_command_cache` and the async block will
                                 // try to re-send it. (Improvement? create a data field called `buffer_full`,
-                                // wait until it is set to false and re-send the command after that to prevent 
+                                // wait until it is set to false and re-send the command after that to prevent
                                 // repeatedly sending the same command)
                                 _ => (),
                             },

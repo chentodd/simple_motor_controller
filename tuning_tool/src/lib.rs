@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use eframe::egui::Ui;
 
-use protocol::{ControlMode, MotorProcessData};
+use protocol::{AutoTuneCommand, ControlMode, MotorProcessData};
 
 pub mod controller;
 pub mod view;
@@ -89,6 +89,8 @@ pub enum ViewRequest {
     VelocityControl(f32),
     // A request that wants to control position from command window
     PositionControl(String),
+    // A request that wants to start auto-tuning from command window
+    AutoTuneControl(AutoTuneCommand),
 }
 
 #[derive(Clone)]
