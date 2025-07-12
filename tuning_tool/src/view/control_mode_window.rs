@@ -41,6 +41,11 @@ impl UiView for ControlModeWindow {
                     ControlMode::Velocity,
                     "Velocity",
                 );
+                ui.selectable_value(
+                    &mut self.target_control_mode,
+                    ControlMode::Pid,
+                    "Pid",
+                );
             });
 
         // Check if we need to do mode switch

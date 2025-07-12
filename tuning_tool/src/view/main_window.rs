@@ -3,7 +3,7 @@ use eframe::{
     egui::{self, Ui, Vec2},
 };
 
-use protocol::{ControlMode, MotorCommand, MotorProcessData, PositionCommand};
+use protocol::{AutoTuneCommand, ControlMode, MotorCommand, MotorProcessData, PositionCommand};
 
 use crate::{
     ErrorType, ProfileData, ViewEvent, ViewRequest,
@@ -45,6 +45,7 @@ pub struct TuningTool {
 
     // Others
     velocity_command: f32,
+    auto_tune_command: Option<AutoTuneCommand>,
 }
 
 impl App for TuningTool {
@@ -149,6 +150,7 @@ impl TuningTool {
             view_events: Vec::new(),
 
             velocity_command: 0.0,
+            auto_tune_command: None,
         }
     }
 
@@ -156,6 +158,8 @@ impl TuningTool {
         self.internal_request_state = InternalRequestState::Idle;
         self.view_events.clear();
         self.velocity_command = 0.0;
+        self.position_command_parser.reset();
+        self.auto_tune_command.take();
         if communication_stopped {
             // Clear other data when communication is stopped
             self.communication.take();
@@ -188,9 +192,25 @@ impl TuningTool {
             ControlMode::Velocity => communication
                 .send_motor_command(MotorCommand::VelocityCommand(self.velocity_command)),
             ControlMode::StandStill => {
-                self.velocity_command = 0.0;
-                self.position_command_parser.reset();
-                communication.send_motor_command(MotorCommand::Halt)
+                // self.velocity_command = 0.0;
+                // self.position_command_parser.reset();
+                // self.auto_tune_command.take();
+                communication.send_motor_command(MotorCommand::Halt);
+                self.reset(false);
+            }
+            ControlMode::Pid => {
+                if let Some(auto_tune_command) = self.auto_tune_command.take() {
+                    error!("Send auto-tune command: {:?}", auto_tune_command);
+                    communication.send_motor_command(MotorCommand::AutoTuneCommand(
+                        auto_tune_command,
+                    ));
+                } else if !self.mode_switch.is_finished() {
+                    error!("Send default auto-tune command");
+                    // If auto-tune command is not set, send a default command to switch control mode
+                    communication.send_motor_command(MotorCommand::AutoTuneCommand(
+                        AutoTuneCommand::default(),
+                    ));
+                }
             }
         }
     }
@@ -309,6 +329,10 @@ impl TuningTool {
                         } else {
                             self.mode_switch.ignite(ControlMode::Position);
                         }
+                    }
+                    ViewRequest::AutoTuneControl(x) => {
+                        error!("process auto-tune command: {:?}", &x);
+                        self.auto_tune_command = Some(x);
                     }
                     _ => (),
                 }
