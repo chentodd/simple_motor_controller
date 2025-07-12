@@ -73,7 +73,11 @@ pub struct Context {
     pub right_motor_status: Receiver<'static, CriticalSectionRawMutex, MotorStatus, 2>,
 }
 
-async fn set_motor_cmd_helper(context: &mut Context, id: MotorId, cmd: MotorCommand) -> CommandSetResult {
+async fn set_motor_cmd_helper(
+    context: &mut Context,
+    id: MotorId,
+    cmd: MotorCommand,
+) -> CommandSetResult {
     // Indicates the internal buffer in motion controller is full or not, need to check
     // this flag before sending commands to motion controller task
     //
@@ -101,7 +105,9 @@ async fn set_motor_cmd_helper(context: &mut Context, id: MotorId, cmd: MotorComm
     // struct is full.
     let can_push = match cmd {
         MotorCommand::VelocityCommand(_) | MotorCommand::Halt => true,
-        MotorCommand::PositionCommand(_) => !queue_status.changed().await.is_queue_full,
+        MotorCommand::PositionCommand(_) | MotorCommand::AutoTuneCommand(_) => {
+            !queue_status.changed().await.is_queue_full
+        }
     };
 
     if can_push {
