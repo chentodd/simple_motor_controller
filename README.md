@@ -35,7 +35,6 @@ This motor has inbuilt driver that allows me to control the speed with 1 PWM sig
 
 ## TODOS
 
-- [ ] Implement and test PID auto tuning
 - [ ] Add a position control loop to minimize position error between actual position and interpolated position
 - [ ] Check lookahead processing, implement it to give better support to position command
 
